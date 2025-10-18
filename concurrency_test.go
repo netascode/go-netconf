@@ -240,7 +240,7 @@ func TestRaceInClose(_ *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = client.Close()
+			_ = client.Close() //nolint:errcheck // Test cleanup
 		}()
 	}
 

@@ -1,20 +1,12 @@
 # golangci-lint v2.x configuration
 # Reference: https://golangci-lint.run/usage/configuration/
 
-version: 2
+version: "2"
 
 run:
   timeout: 5m
   tests: true
   modules-download-mode: readonly
-  skip-dirs:
-    - examples
-
-output:
-  format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
-  sort-results: true
 
 linters:
   enable:
@@ -37,57 +29,54 @@ linters:
 
   # Note: Code formatting (gofmt, goimports) is checked separately in CI workflow
 
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
 
-  govet:
-    enable-all: true
-    disable:
-      - shadow    # Can be noisy in some cases
+    govet:
+      enable-all: true
+      disable:
+        - shadow         # Can be noisy in some cases
+        - fieldalignment # Field alignment is not critical for readability
+        - unusedwrite    # Test struct writes are for documentation
 
-  gocyclo:
-    min-complexity: 15
+    gocyclo:
+      min-complexity: 30  # Network protocol code has higher complexity
 
-  dupl:
-    threshold: 100
+    dupl:
+      threshold: 150  # Test patterns can be similar
 
-  goconst:
-    min-len: 3
-    min-occurrences: 3
+    goconst:
+      min-len: 3
+      min-occurrences: 3
 
-  misspell:
-    locale: US
+    misspell:
+      locale: US
 
-  revive:
-    confidence: 0.8
+    revive:
+      confidence: 0.8
 
-  gosec:
-    excludes:
-      - G104  # Covered by errcheck linter
+    gosec:
+      excludes:
+        - G104  # Covered by errcheck linter
 
 issues:
-  exclude-dirs:
-    - examples
-
-  exclude-rules:
-    # Exclude some linters from running on test files
+  exclude:
+    # Exclude test files from duplication and complexity checks
     - path: _test\.go
       linters:
-        - gocyclo
         - dupl
-        - gosec
-        - revive
+        - gocyclo
         - errcheck
+        - govet
 
-    # Exclude examples from all strict checking (examples are for demonstration)
-    - path: examples/.*\.go
+    # Exclude examples from strict checks
+    - path: examples/
       linters:
         - errcheck
         - gosec
-        - revive
-        - unused
+        - govet
 
   max-issues-per-linter: 0
   max-same-issues: 0

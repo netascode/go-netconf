@@ -425,7 +425,7 @@ func BenchmarkBodyString(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = body.String()
+		_, _ = body.String() //nolint:errcheck // Benchmark only measures performance
 	}
 }
 

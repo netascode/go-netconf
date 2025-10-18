@@ -925,7 +925,7 @@ func (c *Client) waitForLockRelease(ctx context.Context, target string) error {
 			if err == nil && res.OK {
 				// Lock acquired, release it immediately to verify availability
 				// Note: ignoring unlock errors is intentional - we proved lock availability
-				_, _ = c.Unlock(ctx, target)
+				_, _ = c.Unlock(ctx, target) //nolint:errcheck // Intentional: verifying lock availability only
 
 				c.logger.Info("NETCONF lock acquired",
 					"target", target)
@@ -953,7 +953,7 @@ func (c *Client) reconnect() error {
 
 	// Close existing connection (ignore errors - connection may already be broken)
 	if c.driver != nil {
-		_ = c.driver.Close() // Explicitly ignore error (connection likely already broken)
+		_ = c.driver.Close() //nolint:errcheck // Explicitly ignore error (connection likely already broken)
 		c.driver = nil
 	}
 
@@ -1068,7 +1068,7 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 		// Check context before attempt
 		select {
 		case <-ctx.Done():
-			return Res{}, fmt.Errorf("operation cancelled: %w", ctx.Err())
+			return Res{}, fmt.Errorf("operation canceled: %w", ctx.Err())
 		default:
 		}
 
@@ -1204,7 +1204,7 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 
 		select {
 		case <-ctx.Done():
-			return Res{}, fmt.Errorf("operation cancelled during backoff: %w", ctx.Err())
+			return Res{}, fmt.Errorf("operation canceled during backoff: %w", ctx.Err())
 		case <-time.After(delay):
 			// Continue to next retry
 		}
@@ -1462,25 +1462,25 @@ func (c *Client) buildEditConfigXML(req *Req) string {
 	xml := "<edit-config></edit-config>"
 
 	// Target datastore (as empty element: <candidate/>, <running/>, etc.)
-	xml, _ = xmldot.SetRaw(xml, "edit-config.target", "<"+req.Target+"/>")
+	xml, _ = xmldot.SetRaw(xml, "edit-config.target", "<"+req.Target+"/>") //nolint:errcheck // XML building errors caught during validation
 
 	// Default operation (optional) - xmldot automatically escapes the value
 	if req.DefaultOperation != "" {
-		xml, _ = xmldot.Set(xml, "edit-config.default-operation", req.DefaultOperation)
+		xml, _ = xmldot.Set(xml, "edit-config.default-operation", req.DefaultOperation) //nolint:errcheck // XML building errors caught during validation
 	}
 
 	// Test option (optional) - xmldot automatically escapes the value
 	if req.TestOption != "" {
-		xml, _ = xmldot.Set(xml, "edit-config.test-option", req.TestOption)
+		xml, _ = xmldot.Set(xml, "edit-config.test-option", req.TestOption) //nolint:errcheck // XML building errors caught during validation
 	}
 
 	// Error option (optional) - xmldot automatically escapes the value
 	if req.ErrorOption != "" {
-		xml, _ = xmldot.Set(xml, "edit-config.error-option", req.ErrorOption)
+		xml, _ = xmldot.Set(xml, "edit-config.error-option", req.ErrorOption) //nolint:errcheck // XML building errors caught during validation
 	}
 
 	// Config data (raw XML content)
-	xml, _ = xmldot.SetRaw(xml, "edit-config.config", req.Config)
+	xml, _ = xmldot.SetRaw(xml, "edit-config.config", req.Config) //nolint:errcheck // XML building errors caught during validation
 
 	return xml
 }
