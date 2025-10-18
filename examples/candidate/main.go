@@ -1,4 +1,3 @@
-//nolint:errcheck,gosec // Example code prioritizes readability over error handling
 // Package main demonstrates candidate datastore workflow with go-netconf.
 //
 // This example shows:
@@ -14,6 +13,8 @@
 //	export NETCONF_USERNAME=admin
 //	export NETCONF_PASSWORD=secret
 //	go run main.go
+//
+//nolint:errcheck,gosec // Example code prioritizes readability over error handling
 package main
 
 import (

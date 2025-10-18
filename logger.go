@@ -138,8 +138,9 @@ func (l *DefaultLogger) Error(msg string, keysAndValues ...interface{}) {
 // neutralizes such attempts by replacing control characters with safe alternatives.
 //
 // Example attack prevented:
-//   Input: "user\n[ERROR] Fake attack message"
-//   Output: "user .[ERROR].Fake.attack.message"
+//
+//	Input: "user\n[ERROR] Fake attack message"
+//	Output: "user .[ERROR].Fake.attack.message"
 //
 // Returns the sanitized string value.
 func sanitizeLogValue(val interface{}) string {

@@ -63,6 +63,10 @@ linters-settings:
   revive:
     confidence: 0.8
 
+  gosec:
+    excludes:
+      - G104  # Covered by errcheck linter
+
 issues:
   exclude-dirs:
     - examples

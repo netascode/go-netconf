@@ -4,8 +4,8 @@
 help:
 	@echo "Available targets:"
 	@echo "  test       - Run all tests"
-	@echo "  lint       - Run linters (golangci-lint)"
-	@echo "  security   - Run security scanner (gosec)"
+	@echo "  lint       - Run linters (golangci-lint with gosec)"
+	@echo "  security   - Run vulnerability check (govulncheck)"
 	@echo "  coverage   - Run tests with coverage report"
 	@echo "  benchmark  - Run benchmarks"
 	@echo "  clean      - Clean build artifacts"
@@ -24,14 +24,14 @@ lint:
 	@echo "Running linters..."
 	golangci-lint run
 
-# Run security scanner
+# Run security scanner (vulnerability check)
 security:
-	@echo "Running security scanner..."
-	@if which gosec > /dev/null 2>&1; then \
-		gosec -quiet ./...; \
+	@echo "Running vulnerability check..."
+	@if which govulncheck > /dev/null 2>&1; then \
+		govulncheck ./...; \
 	else \
-		echo "WARNING: gosec not installed. Run 'make tools' to install it."; \
-		echo "Skipping security scan..."; \
+		echo "WARNING: govulncheck not installed. Run 'make tools' to install it."; \
+		echo "Skipping vulnerability check..."; \
 	fi
 
 # Run tests with coverage
@@ -66,7 +66,7 @@ verify: fmt test lint security
 tools:
 	@echo "Installing development tools..."
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	go install github.com/securego/gosec/v2/cmd/gosec@latest
+	go install golang.org/x/vuln/cmd/govulncheck@latest
 
 # CI pipeline checks (used in GitHub Actions)
 ci: test lint security

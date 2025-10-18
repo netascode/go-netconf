@@ -1,4 +1,3 @@
-//nolint:errcheck,gosec // Example code prioritizes readability over error handling
 // Package main demonstrates basic go-netconf API usage.
 //
 // This example shows:
@@ -13,6 +12,8 @@
 //	export NETCONF_USERNAME=admin
 //	export NETCONF_PASSWORD=secret
 //	go run main.go
+//
+//nolint:errcheck,gosec // Example code prioritizes readability over error handling
 package main
 
 import (
