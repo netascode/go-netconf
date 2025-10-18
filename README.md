@@ -3,7 +3,7 @@
 <p align="center">
 <a href="https://godoc.org/github.com/netascode/go-netconf"><img src="https://img.shields.io/badge/api-reference-blue.svg?style=flat-square" alt="GoDoc"></a>
 <a href="https://goreportcard.com/report/github.com/netascode/go-netconf"><img src="https://goreportcard.com/badge/github.com/netascode/go-netconf?style=flat-square" alt="Go Report Card"></a>
-<a href="https://github.com/netascode/go-netconf/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/netascode/go-netconf/test.yml?branch=main&style=flat-square&label=tests" alt="Tests"></a>
+<a href="https://github.com/netascode/go-netconf/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/netascode/go-netconf/ci.yml?branch=main&style=flat-square&label=build" alt="CI"></a>
 <a href="https://codecov.io/gh/netascode/go-netconf"><img src="https://codecov.io/gh/netascode/go-netconf/branch/main/graph/badge.svg?style=flat-square" alt="codecov"></a>
 <a href="https://github.com/netascode/go-netconf/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MPL--2.0-blue.svg?style=flat-square" alt="License"></a>
 </p>

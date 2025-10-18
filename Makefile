@@ -37,7 +37,8 @@ security:
 # Run tests with coverage
 coverage:
 	@echo "Running tests with coverage..."
-	go test -race -coverprofile=coverage.out -covermode=atomic ./...
+	@# Exclude examples from coverage
+	go list ./... | grep -v /examples | xargs go test -race -coverprofile=coverage.out -covermode=atomic
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
