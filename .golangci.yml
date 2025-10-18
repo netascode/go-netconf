@@ -1,0 +1,89 @@
+# golangci-lint v2.x configuration
+# Reference: https://golangci-lint.run/usage/configuration/
+
+version: 2
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+  skip-dirs:
+    - examples
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  sort-results: true
+
+linters:
+  enable:
+    # Enabled by default - explicitly listed for clarity
+    - errcheck      # Check for unchecked errors
+    - govet         # Vet examines Go source code
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Static analysis (includes gosimple, stylecheck in v2.x)
+    - unused        # Check for unused code
+
+    # Code quality linters
+    - misspell      # Check for misspelled words
+    - goconst       # Find repeated strings that could be constants
+    - gocyclo       # Check cyclomatic complexity
+    - dupl          # Check for duplicated code
+    - revive        # Comprehensive code quality checks
+
+    # Specific checks
+    - gosec         # Security checks
+
+  # Note: Code formatting (gofmt, goimports) is checked separately in CI workflow
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  govet:
+    enable-all: true
+    disable:
+      - shadow    # Can be noisy in some cases
+
+  gocyclo:
+    min-complexity: 15
+
+  dupl:
+    threshold: 100
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  misspell:
+    locale: US
+
+  revive:
+    confidence: 0.8
+
+issues:
+  exclude-dirs:
+    - examples
+
+  exclude-rules:
+    # Exclude some linters from running on test files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - dupl
+        - gosec
+        - revive
+        - errcheck
+
+    # Exclude examples from all strict checking (examples are for demonstration)
+    - path: examples/.*\.go
+      linters:
+        - errcheck
+        - gosec
+        - revive
+        - unused
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
