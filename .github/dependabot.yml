@@ -15,15 +15,9 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
-      - "go"
-      - "automated"
     commit-message:
       prefix: "build(deps)"
       include: "scope"
-    reviewers:
-      - "netascode/maintainers"
-    assignees:
-      - "netascode/maintainers"
 
   # GitHub Actions dependencies
   - package-ecosystem: "github-actions"
@@ -36,12 +30,6 @@ updates:
     open-pull-requests-limit: 3
     labels:
       - "dependencies"
-      - "github-actions"
-      - "automated"
     commit-message:
       prefix: "ci(deps)"
       include: "scope"
-    reviewers:
-      - "netascode/maintainers"
-    assignees:
-      - "netascode/maintainers"
