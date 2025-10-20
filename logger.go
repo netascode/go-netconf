@@ -27,7 +27,7 @@ const MaxLogValueLength = 1024
 //	    logger *slog.Logger
 //	}
 //
-//	func (s *SlogAdapter) Debug(msg string, keysAndValues ...interface{}) {
+//	func (s *SlogAdapter) Debug(msg string, keysAndValues ...any) {
 //	    s.logger.Debug(msg, keysAndValues...)
 //	}
 //	// ... implement other methods
@@ -37,10 +37,10 @@ const MaxLogValueLength = 1024
 //	    netconf.Password("secret"),
 //	    netconf.WithLogger(&SlogAdapter{logger: slog.Default()}))
 type Logger interface {
-	Debug(msg string, keysAndValues ...interface{})
-	Info(msg string, keysAndValues ...interface{})
-	Warn(msg string, keysAndValues ...interface{})
-	Error(msg string, keysAndValues ...interface{})
+	Debug(msg string, keysAndValues ...any)
+	Info(msg string, keysAndValues ...any)
+	Warn(msg string, keysAndValues ...any)
+	Error(msg string, keysAndValues ...any)
 }
 
 // LogLevel represents the severity threshold for logging
@@ -102,28 +102,28 @@ func NewDefaultLogger(level LogLevel) *DefaultLogger {
 }
 
 // Debug logs a debug message with structured key-value pairs
-func (l *DefaultLogger) Debug(msg string, keysAndValues ...interface{}) {
+func (l *DefaultLogger) Debug(msg string, keysAndValues ...any) {
 	if l.level <= LogLevelDebug {
 		l.log("DEBUG", msg, keysAndValues...)
 	}
 }
 
 // Info logs an informational message with structured key-value pairs
-func (l *DefaultLogger) Info(msg string, keysAndValues ...interface{}) {
+func (l *DefaultLogger) Info(msg string, keysAndValues ...any) {
 	if l.level <= LogLevelInfo {
 		l.log("INFO", msg, keysAndValues...)
 	}
 }
 
 // Warn logs a warning message with structured key-value pairs
-func (l *DefaultLogger) Warn(msg string, keysAndValues ...interface{}) {
+func (l *DefaultLogger) Warn(msg string, keysAndValues ...any) {
 	if l.level <= LogLevelWarn {
 		l.log("WARN", msg, keysAndValues...)
 	}
 }
 
 // Error logs an error message with structured key-value pairs
-func (l *DefaultLogger) Error(msg string, keysAndValues ...interface{}) {
+func (l *DefaultLogger) Error(msg string, keysAndValues ...any) {
 	if l.level <= LogLevelError {
 		l.log("ERROR", msg, keysAndValues...)
 	}
@@ -143,7 +143,7 @@ func (l *DefaultLogger) Error(msg string, keysAndValues ...interface{}) {
 //	Output: "user .[ERROR].Fake.attack.message"
 //
 // Returns the sanitized string value.
-func sanitizeLogValue(val interface{}) string {
+func sanitizeLogValue(val any) string {
 	str := fmt.Sprintf("%v", val)
 
 	// Truncate long values to prevent log file DoS
@@ -164,6 +164,11 @@ func sanitizeLogValue(val interface{}) string {
 			decoded, size := utf8.DecodeRuneInString(str[i:])
 			if decoded == utf8.RuneError {
 				builder.WriteRune('.')
+				// CRITICAL: Must advance index even on error to prevent infinite loop
+				if size == 0 {
+					size = 1 // Ensure forward progress on malformed UTF-8
+				}
+				i += size - 1
 				continue
 			}
 
@@ -214,7 +219,7 @@ func sanitizeLogValue(val interface{}) string {
 // All key-value pairs are sanitized to prevent log injection attacks and
 // enforce size limits. The message string is NOT sanitized as it comes from
 // trusted sources (the library code itself).
-func (l *DefaultLogger) log(level, msg string, keysAndValues ...interface{}) {
+func (l *DefaultLogger) log(level, msg string, keysAndValues ...any) {
 	if l.level > logLevelFromString(level) {
 		return
 	}
@@ -284,13 +289,13 @@ func logLevelFromString(level string) LogLevel {
 type NoOpLogger struct{}
 
 // Debug discards the log message
-func (n *NoOpLogger) Debug(_ string, _ ...interface{}) {}
+func (n *NoOpLogger) Debug(_ string, _ ...any) {}
 
 // Info discards the log message
-func (n *NoOpLogger) Info(_ string, _ ...interface{}) {}
+func (n *NoOpLogger) Info(_ string, _ ...any) {}
 
 // Warn discards the log message
-func (n *NoOpLogger) Warn(_ string, _ ...interface{}) {}
+func (n *NoOpLogger) Warn(_ string, _ ...any) {}
 
 // Error discards the log message
-func (n *NoOpLogger) Error(_ string, _ ...interface{}) {}
+func (n *NoOpLogger) Error(_ string, _ ...any) {}
