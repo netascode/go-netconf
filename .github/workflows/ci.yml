@@ -2,12 +2,53 @@ name: CI
 
 on:
   push:
-  pull_request:
+    branches: [main]
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled]
 
 jobs:
+  # Security check for fork PRs - validates PR source before running workflows with secrets
+  security_check:
+    name: Security Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request_target'
+    outputs:
+      is_fork: ${{ steps.check.outputs.is_fork }}
+      is_safe: ${{ steps.check.outputs.is_safe }}
+    steps:
+      - name: Check PR source
+        id: check
+        run: |
+          IS_FORK="false"
+          IS_SAFE="false"
+
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            IS_FORK="true"
+            echo "Fork PR detected from: ${{ github.event.pull_request.head.repo.full_name }}"
+          fi
+
+          # Check if PR has 'safe-to-test' label (maintainer approval)
+          if [ "${{ contains(github.event.pull_request.labels.*.name, 'safe-to-test') }}" = "true" ]; then
+            IS_SAFE="true"
+            echo "PR marked safe-to-test by maintainer"
+          fi
+
+          # Non-fork PRs are always safe
+          if [ "$IS_FORK" = "false" ]; then
+            IS_SAFE="true"
+          fi
+
+          echo "is_fork=$IS_FORK" >> $GITHUB_OUTPUT
+          echo "is_safe=$IS_SAFE" >> $GITHUB_OUTPUT
+
   test:
     name: Test
     runs-on: ubuntu-latest
+    needs: [security_check]
+    if: |
+      always() &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'pull_request_target' && needs.security_check.outputs.is_safe == 'true'))
     permissions:
       contents: read
     strategy:
@@ -16,15 +57,17 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.2.0
       with:
         go-version: ${{ matrix.go-version }}
 
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
       with:
         path: |
           ~/.cache/go-build
@@ -49,7 +92,7 @@ jobs:
 
     - name: Upload coverage to Codecov
       if: matrix.go-version == '1.25.x'
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@015f24e6818733317a2da2edd6290ab26238649a # v4.6.0
       with:
         files: ./coverage.out
         flags: unittests
@@ -59,20 +102,27 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    needs: [security_check]
+    if: |
+      always() &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'pull_request_target' && needs.security_check.outputs.is_safe == 'true'))
     permissions:
       contents: read
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.2.0
       with:
         go-version: '1.25.x'
 
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v8
+      uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8 # v8.3.1
       with:
         version: v2.5
         args: --timeout=5m
@@ -80,15 +130,22 @@ jobs:
   security:
     name: Security
     runs-on: ubuntu-latest
+    needs: [security_check]
+    if: |
+      always() &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'pull_request_target' && needs.security_check.outputs.is_safe == 'true'))
     permissions:
       contents: read
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.2.0
       with:
         go-version: '1.25.x'
 
