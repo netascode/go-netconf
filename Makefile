@@ -69,7 +69,7 @@ verify: fmt test lint security check-license
 tools:
 	@echo "Installing development tools..."
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.62.2
-	go install golang.org/x/vuln/cmd/govulncheck@v1.1.3
+	go install golang.org/x/vuln/cmd/govulncheck@latest
 	go install github.com/google/addlicense@v1.1.1
 
 # Add license headers to all Go files
