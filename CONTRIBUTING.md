@@ -31,7 +31,7 @@ Feature suggestions are welcome! Please:
 1. Fork the repository and create a branch from `main`
 2. Make your changes following the coding guidelines below
 3. Add tests for any new functionality
-4. Add SPDX headers to all new Go files (see Headers section)
+4. Add SPDX headers to new Go files - see Headers section (contributors: add manually with YOUR copyright, do NOT run `make license`)
 5. Ensure all checks pass: `make test`, `make lint`, `make security`
 6. Update documentation as needed
 7. Write clear commit messages following conventional commits
@@ -73,7 +73,40 @@ All Go source files must include SPDX license identifier and copyright notice:
 package netconf
 ```
 
-Use provided scripts: `bash scripts/add-headers.sh` or `bash scripts/check-headers.sh`
+#### Adding Headers
+
+The project uses [Google's addlicense](https://github.com/google/addlicense) tool for license header management.
+
+**Install addlicense:**
+```bash
+go install github.com/google/addlicense@v1.1.1
+# Or use: make tools
+```
+
+**Version Note**: Use the exact version shown above (`@v1.1.1`) to match the CI environment. Using `@latest` may cause version mismatches between local development and CI checks.
+
+**Add headers to new files:**
+```bash
+make license
+```
+
+**Verify headers:**
+```bash
+make check-license
+```
+
+**Important Notes:**
+- **For Maintainers**: Use `make license` to add headers with project default copyright holder
+- **For Contributors**: Do NOT use `make license` - it will overwrite your copyright holder
+- **For Contributors**: Manually add headers to new files with YOUR organization's copyright:
+  ```go
+  // SPDX-License-Identifier: MPL-2.0
+  // Copyright (c) 2025 Your Organization Name
+
+  package netconf
+  ```
+- Then run `make check-license` to verify format compliance (accepts any copyright holder)
+- Both SPDX-first and Copyright-first formats are accepted by the check command
 
 ### Testing
 
