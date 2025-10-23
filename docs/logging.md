@@ -152,23 +152,45 @@ logger := netconf.NewDefaultLogger(netconf.LogLevelError)
 
 ## Logger Interface
 
-The `Logger` interface defines four methods:
+The `Logger` interface defines four context-aware methods:
 
 ```go
 type Logger interface {
-    Debug(msg string, keysAndValues ...interface{})
-    Info(msg string, keysAndValues ...interface{})
-    Warn(msg string, keysAndValues ...interface{})
-    Error(msg string, keysAndValues ...interface{})
+    Debug(ctx context.Context, msg string, keysAndValues ...interface{})
+    Info(ctx context.Context, msg string, keysAndValues ...interface{})
+    Warn(ctx context.Context, msg string, keysAndValues ...interface{})
+    Error(ctx context.Context, msg string, keysAndValues ...interface{})
 }
 ```
+
+All methods receive a `context.Context` as the first parameter, enabling integration with context-based logging frameworks and distributed tracing.
+
+### Context Usage Guidelines
+
+The context parameter enables trace correlation and debugging:
+- Use `context.Background()` for utility methods and internal operations
+- Propagate the user's context from API calls (Get, EditConfig, Lock, Unlock, etc.)
+- Extract trace IDs, request IDs, or tenant IDs for correlation
+- Check context deadline to log timeout information
+
+**When to use context.Background():**
+- Internal utility methods (validation, formatting, sanitization)
+- Constructor methods (NewClient)
+- Configuration processing
+- Static operations that don't involve user requests
+
+**When to propagate user context:**
+- NETCONF operations (Get, EditConfig, Lock, Unlock, etc.)
+- Network operations (Connect, Close)
+- Request/response processing
+- Any operation initiated by a user API call
 
 ### Structured Logging
 
 All logger methods accept key-value pairs:
 
 ```go
-logger.Info("operation complete",
+logger.Info(ctx, "operation complete",
     "operation", "get-config",
     "duration", duration.String(),
     "host", "192.168.1.1",
@@ -184,6 +206,7 @@ logger.Info("operation complete",
 package main
 
 import (
+    "context"
     "log/slog"
     "github.com/netascode/go-netconf"
 )
@@ -193,20 +216,20 @@ type SlogAdapter struct {
     logger *slog.Logger
 }
 
-func (s *SlogAdapter) Debug(msg string, keysAndValues ...interface{}) {
-    s.logger.Debug(msg, keysAndValues...)
+func (s *SlogAdapter) Debug(ctx context.Context, msg string, keysAndValues ...interface{}) {
+    s.logger.DebugContext(ctx, msg, keysAndValues...)
 }
 
-func (s *SlogAdapter) Info(msg string, keysAndValues ...interface{}) {
-    s.logger.Info(msg, keysAndValues...)
+func (s *SlogAdapter) Info(ctx context.Context, msg string, keysAndValues ...interface{}) {
+    s.logger.InfoContext(ctx, msg, keysAndValues...)
 }
 
-func (s *SlogAdapter) Warn(msg string, keysAndValues ...interface{}) {
-    s.logger.Warn(msg, keysAndValues...)
+func (s *SlogAdapter) Warn(ctx context.Context, msg string, keysAndValues ...interface{}) {
+    s.logger.WarnContext(ctx, msg, keysAndValues...)
 }
 
-func (s *SlogAdapter) Error(msg string, keysAndValues ...interface{}) {
-    s.logger.Error(msg, keysAndValues...)
+func (s *SlogAdapter) Error(ctx context.Context, msg string, keysAndValues ...interface{}) {
+    s.logger.ErrorContext(ctx, msg, keysAndValues...)
 }
 
 func main() {
@@ -230,6 +253,7 @@ func main() {
 package main
 
 import (
+    "context"
     "go.uber.org/zap"
     "github.com/netascode/go-netconf"
 )
@@ -239,19 +263,19 @@ type ZapAdapter struct {
     logger *zap.SugaredLogger
 }
 
-func (z *ZapAdapter) Debug(msg string, keysAndValues ...interface{}) {
+func (z *ZapAdapter) Debug(ctx context.Context, msg string, keysAndValues ...interface{}) {
     z.logger.Debugw(msg, keysAndValues...)
 }
 
-func (z *ZapAdapter) Info(msg string, keysAndValues ...interface{}) {
+func (z *ZapAdapter) Info(ctx context.Context, msg string, keysAndValues ...interface{}) {
     z.logger.Infow(msg, keysAndValues...)
 }
 
-func (z *ZapAdapter) Warn(msg string, keysAndValues ...interface{}) {
+func (z *ZapAdapter) Warn(ctx context.Context, msg string, keysAndValues ...interface{}) {
     z.logger.Warnw(msg, keysAndValues...)
 }
 
-func (z *ZapAdapter) Error(msg string, keysAndValues ...interface{}) {
+func (z *ZapAdapter) Error(ctx context.Context, msg string, keysAndValues ...interface{}) {
     z.logger.Errorw(msg, keysAndValues...)
 }
 
@@ -274,6 +298,7 @@ func main() {
 package main
 
 import (
+    "context"
     "github.com/sirupsen/logrus"
     "github.com/netascode/go-netconf"
 )
@@ -283,19 +308,19 @@ type LogrusAdapter struct {
     logger *logrus.Logger
 }
 
-func (l *LogrusAdapter) Debug(msg string, keysAndValues ...interface{}) {
+func (l *LogrusAdapter) Debug(ctx context.Context, msg string, keysAndValues ...interface{}) {
     l.logger.WithFields(l.toFields(keysAndValues)).Debug(msg)
 }
 
-func (l *LogrusAdapter) Info(msg string, keysAndValues ...interface{}) {
+func (l *LogrusAdapter) Info(ctx context.Context, msg string, keysAndValues ...interface{}) {
     l.logger.WithFields(l.toFields(keysAndValues)).Info(msg)
 }
 
-func (l *LogrusAdapter) Warn(msg string, keysAndValues ...interface{}) {
+func (l *LogrusAdapter) Warn(ctx context.Context, msg string, keysAndValues ...interface{}) {
     l.logger.WithFields(l.toFields(keysAndValues)).Warn(msg)
 }
 
-func (l *LogrusAdapter) Error(msg string, keysAndValues ...interface{}) {
+func (l *LogrusAdapter) Error(ctx context.Context, msg string, keysAndValues ...interface{}) {
     l.logger.WithFields(l.toFields(keysAndValues)).Error(msg)
 }
 
@@ -321,6 +346,88 @@ func main() {
         netconf.WithLogger(logger),
     )
 }
+```
+
+**Note**: Zap and Logrus don't have built-in context support, so the context parameter is not used in these adapters. For context-aware logging with trace correlation, use slog or other context-aware logging frameworks.
+
+### Context-Aware Logger (Trace Correlation)
+
+Example logger that extracts trace IDs and request IDs from context:
+
+```go
+import (
+    "context"
+    "fmt"
+    "time"
+)
+
+type ContextAwareLogger struct {
+    prefix string
+}
+
+func (l *ContextAwareLogger) Debug(ctx context.Context, msg string, keysAndValues ...interface{}) {
+    l.logWithContext(ctx, "DEBUG", msg, keysAndValues...)
+}
+
+func (l *ContextAwareLogger) Info(ctx context.Context, msg string, keysAndValues ...interface{}) {
+    l.logWithContext(ctx, "INFO", msg, keysAndValues...)
+}
+
+func (l *ContextAwareLogger) Warn(ctx context.Context, msg string, keysAndValues ...interface{}) {
+    l.logWithContext(ctx, "WARN", msg, keysAndValues...)
+}
+
+func (l *ContextAwareLogger) Error(ctx context.Context, msg string, keysAndValues ...interface{}) {
+    l.logWithContext(ctx, "ERROR", msg, keysAndValues...)
+}
+
+func (l *ContextAwareLogger) logWithContext(ctx context.Context, level, msg string, keysAndValues ...interface{}) {
+    // Extract trace correlation data from context
+    type contextKey string
+    var extractedValues []interface{}
+
+    // Extract trace ID if present
+    if traceID := ctx.Value(contextKey("trace_id")); traceID != nil {
+        extractedValues = append(extractedValues, "trace_id", traceID)
+    }
+
+    // Extract request ID if present
+    if requestID := ctx.Value(contextKey("request_id")); requestID != nil {
+        extractedValues = append(extractedValues, "request_id", requestID)
+    }
+
+    // Extract deadline information if present
+    if deadline, ok := ctx.Deadline(); ok {
+        remaining := time.Until(deadline)
+        extractedValues = append(extractedValues, "deadline_remaining", remaining.String())
+    }
+
+    // Combine extracted context values with provided key-values
+    allValues := append(extractedValues, keysAndValues...)
+
+    // Log with all information
+    fmt.Printf("%s [%s] %s", l.prefix, level, msg)
+    for i := 0; i < len(allValues); i += 2 {
+        if i+1 < len(allValues) {
+            fmt.Printf(" %v=%v", allValues[i], allValues[i+1])
+        }
+    }
+    fmt.Println()
+}
+
+// Usage with trace context
+type contextKey string
+ctx := context.WithValue(context.Background(), contextKey("trace_id"), "trace-abc-123")
+ctx = context.WithValue(ctx, contextKey("request_id"), "req-xyz-789")
+
+client, err := netconf.NewClient(
+    "device.example.com",
+    netconf.WithLogger(&ContextAwareLogger{prefix: "[TRACE]"}),
+)
+
+// Operations will log with trace_id and request_id
+result, err := client.Get(ctx, netconf.NewFilter("<interfaces/>"))
+// Output: [TRACE] [INFO] NETCONF RPC request trace_id=trace-abc-123 request_id=req-xyz-789 operation=get
 ```
 
 ## Sensitive Data Redaction
@@ -511,14 +618,14 @@ logger := netconf.NewDefaultLogger(netconf.LogLevelWarn)
 
 ```go
 // Good: Use key-value pairs
-logger.Info("operation complete",
+logger.Info(ctx, "operation complete",
     "operation", "get-config",
     "duration", duration,
     "success", true,
 )
 
 // Bad: Concatenate strings
-logger.Info(fmt.Sprintf("operation %s complete in %s", op, duration))
+logger.Info(ctx, fmt.Sprintf("operation %s complete in %s", op, duration))
 ```
 
 ### 3. Integrate with Existing Logging Infrastructure
@@ -582,10 +689,10 @@ type ContextLogger struct {
     device string
 }
 
-func (c *ContextLogger) Info(msg string, keysAndValues ...interface{}) {
+func (c *ContextLogger) Info(ctx context.Context, msg string, keysAndValues ...interface{}) {
     // Add device context to all logs
     kvs := append(keysAndValues, "device", c.device)
-    c.logger.Info(msg, kvs...)
+    c.logger.InfoContext(ctx, msg, kvs...)
 }
 
 // Use with multiple devices

@@ -217,13 +217,13 @@ func NewClient(host string, opts ...func(*Client)) (*Client, error) {
 	}
 
 	// Log successful connection
-	client.logger.Info("NETCONF connection established",
+	client.logger.Info(context.Background(), "NETCONF connection established",
 		"host", client.Host,
 		"port", client.Port,
 		"sessionID", client.sessionID,
 		"version", client.serverVersion)
 
-	client.logger.Debug("NETCONF capabilities discovered",
+	client.logger.Debug(context.Background(), "NETCONF capabilities discovered",
 		"count", len(client.Capabilities))
 
 	return client, nil
@@ -252,7 +252,7 @@ func (c *Client) Close() error {
 		return fmt.Errorf("failed to close NETCONF session: %w", err)
 	}
 
-	c.logger.Info("NETCONF connection closed",
+	c.logger.Info(context.Background(), "NETCONF connection closed",
 		"host", c.Host,
 		"sessionID", c.sessionID)
 
@@ -744,7 +744,7 @@ func (c *Client) prepareXMLForLogging(xml string) string {
 		strings.Count(xml, "<community>")
 
 	if sensitiveCount > MaxSensitiveElements {
-		c.logger.Warn("Too many sensitive elements detected",
+		c.logger.Warn(context.Background(), "Too many sensitive elements detected",
 			"count", sensitiveCount,
 			"max", MaxSensitiveElements)
 		return XMLTooManySensitiveMessage
@@ -903,7 +903,7 @@ func (c *Client) Backoff(attempt int) time.Duration {
 //
 // Returns an error if the lock is not released within LockReleaseTimeout.
 func (c *Client) waitForLockRelease(ctx context.Context, target string) error {
-	c.logger.Info("NETCONF waiting for lock release",
+	c.logger.Info(ctx, "NETCONF waiting for lock release",
 		"target", target,
 		"timeout", c.LockReleaseTimeout.String())
 
@@ -927,7 +927,7 @@ func (c *Client) waitForLockRelease(ctx context.Context, target string) error {
 				// Note: ignoring unlock errors is intentional - we proved lock availability
 				_, _ = c.Unlock(ctx, target) //nolint:errcheck // Intentional: verifying lock availability only
 
-				c.logger.Info("NETCONF lock acquired",
+				c.logger.Info(ctx, "NETCONF lock acquired",
 					"target", target)
 
 				return nil
@@ -947,7 +947,7 @@ func (c *Client) reconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.logger.Warn("NETCONF reconnecting",
+	c.logger.Warn(context.Background(), "NETCONF reconnecting",
 		"host", c.Host,
 		"reason", "transport error")
 
@@ -976,7 +976,7 @@ func (c *Client) reconnect() error {
 	// Create new driver
 	driver, err := netconf.NewDriver(c.Host, scrapliOpts...)
 	if err != nil {
-		c.logger.Error("NETCONF reconnection failed",
+		c.logger.Error(context.Background(), "NETCONF reconnection failed",
 			"host", c.Host,
 			"error", err.Error())
 		return fmt.Errorf("failed to create driver during reconnect: %w", err)
@@ -985,7 +985,7 @@ func (c *Client) reconnect() error {
 	// Open connection
 	err = driver.Open()
 	if err != nil {
-		c.logger.Error("NETCONF reconnection failed",
+		c.logger.Error(context.Background(), "NETCONF reconnection failed",
 			"host", c.Host,
 			"error", err.Error())
 		return fmt.Errorf("failed to open connection during reconnect: %w", err)
@@ -1005,7 +1005,7 @@ func (c *Client) reconnect() error {
 		}
 	}
 
-	c.logger.Info("NETCONF reconnected",
+	c.logger.Info(context.Background(), "NETCONF reconnected",
 		"host", c.Host,
 		"sessionID", c.sessionID)
 
@@ -1074,14 +1074,14 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 
 		// Log retry attempts
 		if attempt > 0 {
-			c.logger.Warn("NETCONF operation retry",
+			c.logger.Warn(ctx, "NETCONF operation retry",
 				"operation", req.Operation,
 				"attempt", attempt,
 				"maxRetries", c.MaxRetries)
 		}
 
 		// Log operation start (Debug level)
-		c.logger.Debug("NETCONF RPC request",
+		c.logger.Debug(ctx, "NETCONF RPC request",
 			"operation", req.Operation,
 			"target", req.Target,
 			"sessionID", c.sessionID)
@@ -1091,7 +1091,7 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 
 		// Log operation completion (Debug level)
 		if err == nil {
-			c.logger.Debug("NETCONF RPC response",
+			c.logger.Debug(ctx, "NETCONF RPC response",
 				"operation", req.Operation,
 				"ok", res.OK,
 				"errorCount", len(res.Errors),
@@ -1150,7 +1150,7 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 		// Not transient or max retries reached
 		if !isTransient || attempt >= c.MaxRetries {
 			// Log operation failure
-			c.logger.Error("NETCONF operation failed",
+			c.logger.Error(ctx, "NETCONF operation failed",
 				"operation", req.Operation,
 				"retries", attempt,
 				"transient", isTransient,
@@ -1158,7 +1158,7 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 
 			// Log each RPC error
 			for i, rpcErr := range res.Errors {
-				c.logger.Error("NETCONF RPC error",
+				c.logger.Error(ctx, "NETCONF RPC error",
 					"index", i,
 					"errorType", rpcErr.ErrorType,
 					"errorTag", rpcErr.ErrorTag,
@@ -1197,7 +1197,7 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 
 		// Apply backoff before next retry
 		delay := c.Backoff(attempt)
-		c.logger.Debug("NETCONF retry backoff",
+		c.logger.Debug(ctx, "NETCONF retry backoff",
 			"operation", req.Operation,
 			"attempt", attempt,
 			"delay", delay.String())

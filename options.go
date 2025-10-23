@@ -130,10 +130,10 @@ func InsecureSkipHostKeyVerification() func(*Client) {
 //	    logger *slog.Logger
 //	}
 //
-//	func (s *SlogAdapter) Debug(msg string, keysAndValues ...interface{}) {
-//	    s.logger.Debug(msg, keysAndValues...)
+//	func (s *SlogAdapter) Debug(ctx context.Context, msg string, keysAndValues ...interface{}) {
+//	    s.logger.DebugContext(ctx, msg, keysAndValues...)
 //	}
-//	// ... implement Info, Warn, Error
+//	// ... implement Info, Warn, Error (all with ctx context.Context as first parameter)
 //
 //	client, _ := netconf.NewClient("192.168.1.1",
 //	    netconf.WithLogger(&SlogAdapter{logger: slog.Default()}))

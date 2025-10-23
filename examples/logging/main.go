@@ -111,10 +111,11 @@ func main() {
 		logger := netconf.NewDefaultLogger(ll.level)
 
 		// Demonstrate different log levels
-		logger.Debug("This is a debug message", "key", "value")
-		logger.Info("This is an info message", "host", "192.168.1.1")
-		logger.Warn("This is a warning message", "attempt", 1)
-		logger.Error("This is an error message", "error", "something went wrong")
+		ctx := context.Background()
+		logger.Debug(ctx, "This is a debug message", "key", "value")
+		logger.Info(ctx, "This is an info message", "host", "192.168.1.1")
+		logger.Warn(ctx, "This is a warning message", "attempt", 1)
+		logger.Error(ctx, "This is an error message", "error", "something went wrong")
 	}
 
 	// Example 5: Sensitive data redaction

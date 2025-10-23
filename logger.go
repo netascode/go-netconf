@@ -4,6 +4,7 @@
 package netconf
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -16,10 +17,33 @@ const MaxLogValueLength = 1024
 
 // Logger interface for pluggable logging support
 //
+// All methods receive a context.Context as the first parameter, enabling
+// integration with context-based logging frameworks and distributed tracing.
+//
 // Implementations should use structured logging with key-value pairs.
 // The go-netconf library provides two implementations:
 //   - DefaultLogger: Wraps Go's standard log package with configurable log level
 //   - NoOpLogger: Zero-overhead logging when disabled (default)
+//
+// Context Usage Guidelines:
+//
+// The context parameter enables trace correlation and debugging:
+//   - Use context.Background() for utility methods and internal operations
+//   - Propagate the user's context from API calls (Get, Set, EditConfig, etc.)
+//   - Extract trace IDs, request IDs, or tenant IDs for correlation
+//   - Check context deadline to log timeout information
+//
+// When to use context.Background():
+//   - Internal utility methods (validation, formatting, sanitization)
+//   - Constructor methods (NewClient)
+//   - Configuration processing
+//   - Static operations that don't involve user requests
+//
+// When to propagate user context:
+//   - NETCONF operations (Get, EditConfig, Lock, Unlock, etc.)
+//   - Network operations (Connect, Close)
+//   - Request/response processing
+//   - Any operation initiated by a user API call
 //
 // Example custom logger integration:
 //
@@ -27,8 +51,8 @@ const MaxLogValueLength = 1024
 //	    logger *slog.Logger
 //	}
 //
-//	func (s *SlogAdapter) Debug(msg string, keysAndValues ...any) {
-//	    s.logger.Debug(msg, keysAndValues...)
+//	func (s *SlogAdapter) Debug(ctx context.Context, msg string, keysAndValues ...any) {
+//	    s.logger.DebugContext(ctx, msg, keysAndValues...)
 //	}
 //	// ... implement other methods
 //
@@ -37,10 +61,10 @@ const MaxLogValueLength = 1024
 //	    netconf.Password("secret"),
 //	    netconf.WithLogger(&SlogAdapter{logger: slog.Default()}))
 type Logger interface {
-	Debug(msg string, keysAndValues ...any)
-	Info(msg string, keysAndValues ...any)
-	Warn(msg string, keysAndValues ...any)
-	Error(msg string, keysAndValues ...any)
+	Debug(ctx context.Context, msg string, keysAndValues ...any)
+	Info(ctx context.Context, msg string, keysAndValues ...any)
+	Warn(ctx context.Context, msg string, keysAndValues ...any)
+	Error(ctx context.Context, msg string, keysAndValues ...any)
 }
 
 // LogLevel represents the severity threshold for logging
@@ -85,6 +109,27 @@ func (l LogLevel) String() string {
 //
 // Log output format: [LEVEL] message key1=value1 key2=value2
 //
+// Context Parameter Usage:
+//
+// DefaultLogger does NOT use the context parameter. It is provided to satisfy
+// the Logger interface and enable integration with context-aware logging frameworks.
+//
+// Custom logger implementations SHOULD use the context to extract trace correlation
+// data such as:
+//   - Request ID / Trace ID for distributed tracing
+//   - User ID or tenant ID for multi-tenant applications
+//   - Deadline information for timeout debugging
+//
+// Example of context-aware logging in a custom logger:
+//
+//	func (s *SlogAdapter) Debug(ctx context.Context, msg string, keysAndValues ...any) {
+//	    // Extract trace ID from context
+//	    if traceID := ctx.Value("trace_id"); traceID != nil {
+//	        keysAndValues = append(keysAndValues, "trace_id", traceID)
+//	    }
+//	    s.logger.DebugContext(ctx, msg, keysAndValues...)
+//	}
+//
 // Example:
 //
 //	logger := netconf.NewDefaultLogger(netconf.LogLevelDebug)
@@ -102,28 +147,28 @@ func NewDefaultLogger(level LogLevel) *DefaultLogger {
 }
 
 // Debug logs a debug message with structured key-value pairs
-func (l *DefaultLogger) Debug(msg string, keysAndValues ...any) {
+func (l *DefaultLogger) Debug(ctx context.Context, msg string, keysAndValues ...any) {
 	if l.level <= LogLevelDebug {
 		l.log("DEBUG", msg, keysAndValues...)
 	}
 }
 
 // Info logs an informational message with structured key-value pairs
-func (l *DefaultLogger) Info(msg string, keysAndValues ...any) {
+func (l *DefaultLogger) Info(ctx context.Context, msg string, keysAndValues ...any) {
 	if l.level <= LogLevelInfo {
 		l.log("INFO", msg, keysAndValues...)
 	}
 }
 
 // Warn logs a warning message with structured key-value pairs
-func (l *DefaultLogger) Warn(msg string, keysAndValues ...any) {
+func (l *DefaultLogger) Warn(ctx context.Context, msg string, keysAndValues ...any) {
 	if l.level <= LogLevelWarn {
 		l.log("WARN", msg, keysAndValues...)
 	}
 }
 
 // Error logs an error message with structured key-value pairs
-func (l *DefaultLogger) Error(msg string, keysAndValues ...any) {
+func (l *DefaultLogger) Error(ctx context.Context, msg string, keysAndValues ...any) {
 	if l.level <= LogLevelError {
 		l.log("ERROR", msg, keysAndValues...)
 	}
@@ -289,13 +334,13 @@ func logLevelFromString(level string) LogLevel {
 type NoOpLogger struct{}
 
 // Debug discards the log message
-func (n *NoOpLogger) Debug(_ string, _ ...any) {}
+func (n *NoOpLogger) Debug(_ context.Context, _ string, _ ...any) {}
 
 // Info discards the log message
-func (n *NoOpLogger) Info(_ string, _ ...any) {}
+func (n *NoOpLogger) Info(_ context.Context, _ string, _ ...any) {}
 
 // Warn discards the log message
-func (n *NoOpLogger) Warn(_ string, _ ...any) {}
+func (n *NoOpLogger) Warn(_ context.Context, _ string, _ ...any) {}
 
 // Error discards the log message
-func (n *NoOpLogger) Error(_ string, _ ...any) {}
+func (n *NoOpLogger) Error(_ context.Context, _ string, _ ...any) {}

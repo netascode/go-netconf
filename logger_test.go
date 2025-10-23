@@ -5,6 +5,7 @@ package netconf
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"os"
 	"regexp"
@@ -45,7 +46,7 @@ func TestDefaultLogger(t *testing.T) {
 
 	t.Run("Debug", func(t *testing.T) {
 		buf.Reset()
-		logger.Debug("test message", "key1", "value1", "key2", "value2")
+		logger.Debug(context.Background(), "test message", "key1", "value1", "key2", "value2")
 		output := buf.String()
 		if !strings.Contains(output, "[DEBUG]") {
 			t.Errorf("Expected [DEBUG] in output, got: %s", output)
@@ -63,7 +64,7 @@ func TestDefaultLogger(t *testing.T) {
 
 	t.Run("Info", func(t *testing.T) {
 		buf.Reset()
-		logger.Info("info message", "host", "192.168.1.1", "port", 830)
+		logger.Info(context.Background(), "info message", "host", "192.168.1.1", "port", 830)
 		output := buf.String()
 		if !strings.Contains(output, "[INFO]") {
 			t.Errorf("Expected [INFO] in output, got: %s", output)
@@ -81,7 +82,7 @@ func TestDefaultLogger(t *testing.T) {
 
 	t.Run("Warn", func(t *testing.T) {
 		buf.Reset()
-		logger.Warn("warning message")
+		logger.Warn(context.Background(), "warning message")
 		output := buf.String()
 		if !strings.Contains(output, "[WARN]") {
 			t.Errorf("Expected [WARN] in output, got: %s", output)
@@ -93,7 +94,7 @@ func TestDefaultLogger(t *testing.T) {
 
 	t.Run("Error", func(t *testing.T) {
 		buf.Reset()
-		logger.Error("error message", "error", "something went wrong")
+		logger.Error(context.Background(), "error message", "error", "something went wrong")
 		output := buf.String()
 		if !strings.Contains(output, "[ERROR]") {
 			t.Errorf("Expected [ERROR] in output, got: %s", output)
@@ -118,30 +119,30 @@ func TestDefaultLogger_LogLevels(t *testing.T) {
 		logFunc   func(Logger)
 		shouldLog bool
 	}{
-		{"Debug at Debug", LogLevelDebug, func(l Logger) { l.Debug("test") }, true},
-		{"Info at Debug", LogLevelDebug, func(l Logger) { l.Info("test") }, true},
-		{"Warn at Debug", LogLevelDebug, func(l Logger) { l.Warn("test") }, true},
-		{"Error at Debug", LogLevelDebug, func(l Logger) { l.Error("test") }, true},
+		{"Debug at Debug", LogLevelDebug, func(l Logger) { l.Debug(context.Background(), "test") }, true},
+		{"Info at Debug", LogLevelDebug, func(l Logger) { l.Info(context.Background(), "test") }, true},
+		{"Warn at Debug", LogLevelDebug, func(l Logger) { l.Warn(context.Background(), "test") }, true},
+		{"Error at Debug", LogLevelDebug, func(l Logger) { l.Error(context.Background(), "test") }, true},
 
-		{"Debug at Info", LogLevelInfo, func(l Logger) { l.Debug("test") }, false},
-		{"Info at Info", LogLevelInfo, func(l Logger) { l.Info("test") }, true},
-		{"Warn at Info", LogLevelInfo, func(l Logger) { l.Warn("test") }, true},
-		{"Error at Info", LogLevelInfo, func(l Logger) { l.Error("test") }, true},
+		{"Debug at Info", LogLevelInfo, func(l Logger) { l.Debug(context.Background(), "test") }, false},
+		{"Info at Info", LogLevelInfo, func(l Logger) { l.Info(context.Background(), "test") }, true},
+		{"Warn at Info", LogLevelInfo, func(l Logger) { l.Warn(context.Background(), "test") }, true},
+		{"Error at Info", LogLevelInfo, func(l Logger) { l.Error(context.Background(), "test") }, true},
 
-		{"Debug at Warn", LogLevelWarn, func(l Logger) { l.Debug("test") }, false},
-		{"Info at Warn", LogLevelWarn, func(l Logger) { l.Info("test") }, false},
-		{"Warn at Warn", LogLevelWarn, func(l Logger) { l.Warn("test") }, true},
-		{"Error at Warn", LogLevelWarn, func(l Logger) { l.Error("test") }, true},
+		{"Debug at Warn", LogLevelWarn, func(l Logger) { l.Debug(context.Background(), "test") }, false},
+		{"Info at Warn", LogLevelWarn, func(l Logger) { l.Info(context.Background(), "test") }, false},
+		{"Warn at Warn", LogLevelWarn, func(l Logger) { l.Warn(context.Background(), "test") }, true},
+		{"Error at Warn", LogLevelWarn, func(l Logger) { l.Error(context.Background(), "test") }, true},
 
-		{"Debug at Error", LogLevelError, func(l Logger) { l.Debug("test") }, false},
-		{"Info at Error", LogLevelError, func(l Logger) { l.Info("test") }, false},
-		{"Warn at Error", LogLevelError, func(l Logger) { l.Warn("test") }, false},
-		{"Error at Error", LogLevelError, func(l Logger) { l.Error("test") }, true},
+		{"Debug at Error", LogLevelError, func(l Logger) { l.Debug(context.Background(), "test") }, false},
+		{"Info at Error", LogLevelError, func(l Logger) { l.Info(context.Background(), "test") }, false},
+		{"Warn at Error", LogLevelError, func(l Logger) { l.Warn(context.Background(), "test") }, false},
+		{"Error at Error", LogLevelError, func(l Logger) { l.Error(context.Background(), "test") }, true},
 
-		{"Debug at None", LogLevelNone, func(l Logger) { l.Debug("test") }, false},
-		{"Info at None", LogLevelNone, func(l Logger) { l.Info("test") }, false},
-		{"Warn at None", LogLevelNone, func(l Logger) { l.Warn("test") }, false},
-		{"Error at None", LogLevelNone, func(l Logger) { l.Error("test") }, false},
+		{"Debug at None", LogLevelNone, func(l Logger) { l.Debug(context.Background(), "test") }, false},
+		{"Info at None", LogLevelNone, func(l Logger) { l.Info(context.Background(), "test") }, false},
+		{"Warn at None", LogLevelNone, func(l Logger) { l.Warn(context.Background(), "test") }, false},
+		{"Error at None", LogLevelNone, func(l Logger) { l.Error(context.Background(), "test") }, false},
 	}
 
 	for _, tt := range tests {
@@ -166,10 +167,10 @@ func TestNoOpLogger(_ *testing.T) {
 	logger := &NoOpLogger{}
 
 	// These should all be no-ops
-	logger.Debug("test", "key", "value")
-	logger.Info("test", "key", "value")
-	logger.Warn("test", "key", "value")
-	logger.Error("test", "key", "value")
+	logger.Debug(context.Background(), "test", "key", "value")
+	logger.Info(context.Background(), "test", "key", "value")
+	logger.Warn(context.Background(), "test", "key", "value")
+	logger.Error(context.Background(), "test", "key", "value")
 
 	// If we got here without panic, test passes
 }
@@ -359,7 +360,7 @@ func TestDefaultLogger_LogInjectionPrevention(t *testing.T) {
 	t.Run("Newline injection", func(t *testing.T) {
 		buf.Reset()
 		// Attempt to inject a fake ERROR log line
-		logger.Info("Test", "malicious", "value\nFAKE ERROR")
+		logger.Info(context.Background(), "Test", "malicious", "value\nFAKE ERROR")
 
 		output := buf.String()
 		lines := strings.Split(output, "\n")
@@ -382,7 +383,7 @@ func TestDefaultLogger_LogInjectionPrevention(t *testing.T) {
 
 	t.Run("Carriage return injection", func(t *testing.T) {
 		buf.Reset()
-		logger.Info("Test", "key", "value\r[ERROR] Injected")
+		logger.Info(context.Background(), "Test", "key", "value\r[ERROR] Injected")
 
 		output := buf.String()
 
@@ -394,7 +395,7 @@ func TestDefaultLogger_LogInjectionPrevention(t *testing.T) {
 
 	t.Run("Tab injection", func(t *testing.T) {
 		buf.Reset()
-		logger.Info("Test", "key", "value\ttab")
+		logger.Info(context.Background(), "Test", "key", "value\ttab")
 
 		output := buf.String()
 
@@ -412,7 +413,7 @@ func TestDefaultLogger_LogInjectionPrevention(t *testing.T) {
 	t.Run("Control characters", func(t *testing.T) {
 		buf.Reset()
 		// Control character (ASCII 0x01)
-		logger.Info("Test", "key", "value\x01control")
+		logger.Info(context.Background(), "Test", "key", "value\x01control")
 
 		output := buf.String()
 
@@ -443,7 +444,7 @@ func TestDefaultLogger_LongValueTruncation(t *testing.T) {
 
 		// Create a very long value (> MaxLogValueLength)
 		longValue := strings.Repeat("A", 2000)
-		logger.Info("Test", "key", longValue)
+		logger.Info(context.Background(), "Test", "key", longValue)
 
 		output := buf.String()
 
@@ -468,7 +469,7 @@ func TestDefaultLogger_LongValueTruncation(t *testing.T) {
 
 		// Create a value exactly at the limit
 		exactValue := strings.Repeat("B", MaxLogValueLength)
-		logger.Info("Test", "key", exactValue)
+		logger.Info(context.Background(), "Test", "key", exactValue)
 
 		output := buf.String()
 
