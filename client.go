@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/netascode/xmldot"
 	"github.com/scrapli/scrapligo/driver/netconf"
@@ -61,6 +62,27 @@ var defaultRedactionPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`<secret>.*?</secret>`),
 	regexp.MustCompile(`<key>.*?</key>`),
 	regexp.MustCompile(`<community>.*?</community>`),
+
+	// CDATA section handling (must come before namespace-aware to avoid conflicts)
+	// Matches: <password><![CDATA[value]]></password>
+	regexp.MustCompile(`<password><!\[CDATA\[.*?\]\]></password>`),
+	regexp.MustCompile(`<secret><!\[CDATA\[.*?\]\]></secret>`),
+	regexp.MustCompile(`<key><!\[CDATA\[.*?\]\]></key>`),
+	regexp.MustCompile(`<community><!\[CDATA\[.*?\]\]></community>`),
+
+	// Namespace-aware element content
+	// Matches: <prefix:password>value</prefix:password>
+	// Note: Go regexp doesn't support backreferences, so we match any namespace in closing tag
+	regexp.MustCompile(`<[a-zA-Z0-9_-]+:password[^>]*>.*?</[a-zA-Z0-9_-]+:password>`),
+	regexp.MustCompile(`<[a-zA-Z0-9_-]+:secret[^>]*>.*?</[a-zA-Z0-9_-]+:secret>`),
+	regexp.MustCompile(`<[a-zA-Z0-9_-]+:key[^>]*>.*?</[a-zA-Z0-9_-]+:key>`),
+	regexp.MustCompile(`<[a-zA-Z0-9_-]+:community[^>]*>.*?</[a-zA-Z0-9_-]+:community>`),
+
+	// Namespaced CDATA sections
+	regexp.MustCompile(`<[a-zA-Z0-9_-]+:password[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:password>`),
+	regexp.MustCompile(`<[a-zA-Z0-9_-]+:secret[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:secret>`),
+	regexp.MustCompile(`<[a-zA-Z0-9_-]+:key[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:key>`),
+	regexp.MustCompile(`<[a-zA-Z0-9_-]+:community[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:community>`),
 
 	// Attribute values (double quotes)
 	regexp.MustCompile(`password="[^"]*"`),
@@ -790,6 +812,24 @@ func (c *Client) redactSensitiveData(xml string) string {
 		"<key>[REDACTED]</key>",
 		"<community>[REDACTED]</community>",
 
+		// CDATA sections (must match pattern order)
+		"<password><![CDATA[[REDACTED]]]></password>",
+		"<secret><![CDATA[[REDACTED]]]></secret>",
+		"<key><![CDATA[[REDACTED]]]></key>",
+		"<community><![CDATA[[REDACTED]]]></community>",
+
+		// Namespace-aware elements (generic replacement works for any namespace)
+		"<ns:password>[REDACTED]</ns:password>",
+		"<ns:secret>[REDACTED]</ns:secret>",
+		"<ns:key>[REDACTED]</ns:key>",
+		"<ns:community>[REDACTED]</ns:community>",
+
+		// Namespaced CDATA sections
+		"<ns:password><![CDATA[[REDACTED]]]></ns:password>",
+		"<ns:secret><![CDATA[[REDACTED]]]></ns:secret>",
+		"<ns:key><![CDATA[[REDACTED]]]></ns:key>",
+		"<ns:community><![CDATA[[REDACTED]]]></ns:community>",
+
 		// Attributes (double quotes)
 		`password="[REDACTED]"`,
 		`secret="[REDACTED]"`,
@@ -1332,6 +1372,57 @@ func (c *Client) executeRPC(ctx context.Context, req *Req) (Res, error) {
 	// Check for nil response
 	if scrapligoRes == nil {
 		return Res{}, fmt.Errorf("operation %s: received nil response from driver", req.Operation)
+	}
+
+	// Log request XML content (Debug level only)
+	// Pre-check size and level to avoid expensive processing when not needed
+	if len(scrapligoRes.Input) > 0 {
+		// Pre-check size limit before string conversion (avoid allocation)
+		if len(scrapligoRes.Input) <= MaxXMLSizeForLogging {
+			// Validate UTF-8 encoding
+			if !utf8.Valid(scrapligoRes.Input) {
+				c.logger.Warn(ctx, "Invalid UTF-8 in NETCONF request XML",
+					"operation", req.Operation,
+					"size", len(scrapligoRes.Input))
+			} else {
+				requestXML := c.prepareXMLForLogging(string(scrapligoRes.Input))
+				c.logger.Debug(ctx, "NETCONF RPC request XML",
+					"operation", req.Operation,
+					"xml", requestXML)
+			}
+		} else {
+			// Log truncation message only (cheap operation)
+			c.logger.Debug(ctx, "NETCONF RPC request XML (truncated)",
+				"operation", req.Operation,
+				"size", len(scrapligoRes.Input),
+				"limit", MaxXMLSizeForLogging,
+				"xml", "[XML TOO LARGE FOR LOGGING]")
+		}
+	}
+
+	// Log response XML content (Debug level only)
+	if scrapligoRes.Result != "" {
+		// Pre-check size limit before processing
+		if len(scrapligoRes.Result) <= MaxXMLSizeForLogging {
+			// Validate UTF-8 encoding
+			if !utf8.ValidString(scrapligoRes.Result) {
+				c.logger.Warn(ctx, "Invalid UTF-8 in NETCONF response XML",
+					"operation", req.Operation,
+					"size", len(scrapligoRes.Result))
+			} else {
+				responseXML := c.prepareXMLForLogging(scrapligoRes.Result)
+				c.logger.Debug(ctx, "NETCONF RPC response XML",
+					"operation", req.Operation,
+					"xml", responseXML)
+			}
+		} else {
+			// Log truncation message only (cheap operation)
+			c.logger.Debug(ctx, "NETCONF RPC response XML (truncated)",
+				"operation", req.Operation,
+				"size", len(scrapligoRes.Result),
+				"limit", MaxXMLSizeForLogging,
+				"xml", "[XML TOO LARGE FOR LOGGING]")
+		}
 	}
 
 	// Parse response XML

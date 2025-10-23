@@ -599,6 +599,61 @@ client, _ := netconf.NewClient("192.168.1.1",
 [ERROR] NETCONF RPC error index=0 errorType=application errorTag=invalid-value errorMessage=Invalid configuration data
 ```
 
+### XML Content Logging (Debug Level)
+
+When log level is set to Debug, go-netconf logs the full XML content of RPC requests and responses:
+
+```
+[DEBUG] NETCONF RPC request XML operation=get-config xml=<rpc message-id="101">...</rpc>
+[DEBUG] NETCONF RPC response XML operation=get-config xml=<rpc-reply message-id="101">...</rpc-reply>
+```
+
+**Security Features:**
+- Automatically redacts sensitive data (passwords, secrets, keys, community strings)
+- Enforces 1MB size limit to prevent logging attacks
+- Pretty-prints XML when `WithPrettyPrintLogs(true)` is enabled
+
+**Performance Notes:**
+- Only active when log level is Debug or lower
+- Zero overhead when using Info/Warn/Error log levels
+- Safe for production debug sessions - sensitive data is automatically redacted
+
+**Example:**
+```go
+// Enable XML content logging for debugging
+logger := netconf.NewDefaultLogger(netconf.LogLevelDebug)
+client, _ := netconf.NewClient("192.168.1.1",
+    netconf.WithLogger(logger),
+    netconf.WithPrettyPrintLogs(true), // Pretty-print XML content
+)
+
+// Perform operation - full XML will be logged
+res, err := client.GetConfig("running")
+```
+
+#### Security Considerations
+
+When Debug logging is enabled, go-netconf logs full XML request/response data. While sensitive fields are automatically redacted, you should still treat debug logs as sensitive:
+
+**Redacted Fields:**
+- `<password>`, `<secret>`, `<key>`, `<community>` (element content)
+- `password=""`, `secret=""`, `key=""`, `community=""` (attributes)
+- XPath predicates with sensitive fields
+
+**Not Redacted:**
+- Network topology (IP addresses, interface names)
+- Configuration structure (ACL names, VRF names)
+- Software versions
+- Custom vendor-specific sensitive fields (add custom patterns)
+
+**Best Practices:**
+1. **Use Debug logging only in trusted environments** (development, troubleshooting)
+2. **Disable Debug in production** (use Info/Warn/Error levels)
+3. **Restrict log file permissions** (`chmod 0600` or `0640`)
+4. **Implement log rotation** (prevent disk exhaustion)
+5. **Encrypt logs at rest** (use encrypted file systems or log aggregation)
+6. **Define retention policies** (delete logs after 30-90 days)
+
 ## Best Practices
 
 ### 1. Use Appropriate Log Levels

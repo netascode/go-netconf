@@ -836,6 +836,21 @@ func TestClient_redactSensitiveData_Attributes(t *testing.T) {
 			regexp.MustCompile(`<secret>.*?</secret>`),
 			regexp.MustCompile(`<key>.*?</key>`),
 			regexp.MustCompile(`<community>.*?</community>`),
+			// CDATA sections
+			regexp.MustCompile(`<password><!\[CDATA\[.*?\]\]></password>`),
+			regexp.MustCompile(`<secret><!\[CDATA\[.*?\]\]></secret>`),
+			regexp.MustCompile(`<key><!\[CDATA\[.*?\]\]></key>`),
+			regexp.MustCompile(`<community><!\[CDATA\[.*?\]\]></community>`),
+			// Namespace-aware elements
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:password[^>]*>.*?</[a-zA-Z0-9_-]+:password>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:secret[^>]*>.*?</[a-zA-Z0-9_-]+:secret>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:key[^>]*>.*?</[a-zA-Z0-9_-]+:key>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:community[^>]*>.*?</[a-zA-Z0-9_-]+:community>`),
+			// Namespaced CDATA sections
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:password[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:password>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:secret[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:secret>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:key[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:key>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:community[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:community>`),
 			// Attributes (double quotes)
 			regexp.MustCompile(`password="[^"]*"`),
 			regexp.MustCompile(`secret="[^"]*"`),
@@ -1026,6 +1041,21 @@ func TestClient_redactSensitiveData_XPathFilters(t *testing.T) {
 			regexp.MustCompile(`<secret>.*?</secret>`),
 			regexp.MustCompile(`<key>.*?</key>`),
 			regexp.MustCompile(`<community>.*?</community>`),
+			// CDATA sections
+			regexp.MustCompile(`<password><!\[CDATA\[.*?\]\]></password>`),
+			regexp.MustCompile(`<secret><!\[CDATA\[.*?\]\]></secret>`),
+			regexp.MustCompile(`<key><!\[CDATA\[.*?\]\]></key>`),
+			regexp.MustCompile(`<community><!\[CDATA\[.*?\]\]></community>`),
+			// Namespace-aware elements
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:password[^>]*>.*?</[a-zA-Z0-9_-]+:password>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:secret[^>]*>.*?</[a-zA-Z0-9_-]+:secret>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:key[^>]*>.*?</[a-zA-Z0-9_-]+:key>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:community[^>]*>.*?</[a-zA-Z0-9_-]+:community>`),
+			// Namespaced CDATA sections
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:password[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:password>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:secret[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:secret>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:key[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:key>`),
+			regexp.MustCompile(`<[a-zA-Z0-9_-]+:community[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:community>`),
 			// Attribute values (double quotes)
 			regexp.MustCompile(`password="[^"]*"`),
 			regexp.MustCompile(`secret="[^"]*"`),
@@ -1095,6 +1125,147 @@ func TestClient_redactSensitiveData_XPathFilters(t *testing.T) {
 				strings.Contains(result, "api_key_xyz") ||
 				strings.Contains(result, "encryption_key") {
 				t.Error("Sensitive data was not redacted")
+			}
+		})
+	}
+}
+
+// TestClient_redactSensitiveData_NamespaceAndCDATA tests namespace-aware and CDATA redaction patterns
+// This test validates the security enhancement that added 12 new patterns for comprehensive coverage
+func TestClient_redactSensitiveData_NamespaceAndCDATA(t *testing.T) {
+	client := &Client{
+		redactionPatterns: defaultRedactionPatterns,
+	}
+
+	tests := []struct {
+		name           string
+		input          string
+		shouldContain  string   // What MUST be in output
+		mustNotContain []string // What MUST NOT be in output (sensitive data)
+		desc           string
+	}{
+		{
+			name:           "Namespace-aware password element",
+			input:          `<config><auth:password>secret123</auth:password><hostname>router1</hostname></config>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"secret123"},
+			desc:           "Should redact <auth:password> with namespace prefix",
+		},
+		{
+			name:           "Namespace-aware secret element",
+			input:          `<data><cisco:secret>my_secret_value</cisco:secret></data>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"my_secret_value"},
+			desc:           "Should redact <cisco:secret> with namespace prefix",
+		},
+		{
+			name:           "Namespace-aware key element",
+			input:          `<config><vpn:key>encryption_key_123</vpn:key></config>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"encryption_key_123"},
+			desc:           "Should redact <vpn:key> with namespace prefix",
+		},
+		{
+			name:           "Namespace-aware community element",
+			input:          `<snmp><mgmt:community>public_string</mgmt:community></snmp>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"public_string"},
+			desc:           "Should redact <mgmt:community> with namespace prefix",
+		},
+		{
+			name:           "CDATA password element",
+			input:          `<config><password><![CDATA[p@ssw0rd!]]></password></config>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"p@ssw0rd!"},
+			desc:           "Should redact CDATA password content",
+		},
+		{
+			name:           "CDATA secret element",
+			input:          `<auth><secret><![CDATA[secret_token_xyz]]></secret></auth>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"secret_token_xyz"},
+			desc:           "Should redact CDATA secret content",
+		},
+		{
+			name:           "CDATA key element",
+			input:          `<crypto><key><![CDATA[api_key_12345]]></key></crypto>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"api_key_12345"},
+			desc:           "Should redact CDATA key content",
+		},
+		{
+			name:           "CDATA community element",
+			input:          `<snmp><community><![CDATA[community_ro]]></community></snmp>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"community_ro"},
+			desc:           "Should redact CDATA community content",
+		},
+		{
+			name:           "Namespace CDATA password",
+			input:          `<config><ns:password><![CDATA[ns_password_value]]></ns:password></config>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"ns_password_value"},
+			desc:           "Should redact namespace-aware CDATA password",
+		},
+		{
+			name:           "Namespace CDATA secret",
+			input:          `<data><auth:secret><![CDATA[secret_in_ns]]></auth:secret></data>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"secret_in_ns"},
+			desc:           "Should redact namespace-aware CDATA secret",
+		},
+		{
+			name:           "Namespace CDATA key",
+			input:          `<vpn><config:key><![CDATA[key_in_ns]]></config:key></vpn>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"key_in_ns"},
+			desc:           "Should redact namespace-aware CDATA key",
+		},
+		{
+			name:           "Namespace CDATA community",
+			input:          `<snmp><cisco:community><![CDATA[community_in_ns]]></cisco:community></snmp>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"community_in_ns"},
+			desc:           "Should redact namespace-aware CDATA community",
+		},
+		{
+			name:           "Mixed redaction types",
+			input:          `<config><password>plain_pass</password><auth:password>ns_pass</auth:password><secret><![CDATA[cdata_secret]]></secret><vpn:key><![CDATA[ns_cdata_key]]></vpn:key></config>`,
+			shouldContain:  "[REDACTED]",
+			mustNotContain: []string{"plain_pass", "ns_pass", "cdata_secret", "ns_cdata_key"},
+			desc:           "Should handle multiple redaction types simultaneously",
+		},
+		{
+			name:           "Preserve non-sensitive content",
+			input:          `<config><hostname>router1</hostname><auth:password>secret</auth:password><interface>GigE0/0</interface></config>`,
+			shouldContain:  "router1",
+			mustNotContain: []string{"secret"},
+			desc:           "Should preserve non-sensitive data like hostnames",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := client.redactSensitiveData(tt.input)
+
+			// Verify sensitive data is NOT in output
+			for _, sensitive := range tt.mustNotContain {
+				if strings.Contains(result, sensitive) {
+					t.Errorf("%s FAILED: Sensitive data '%s' was not redacted\n"+
+						"Input:  %s\n"+
+						"Output: %s\n"+
+						"Reason: %s",
+						tt.name, sensitive, tt.input, result, tt.desc)
+				}
+			}
+
+			// Verify [REDACTED] IS in output
+			if !strings.Contains(result, tt.shouldContain) {
+				t.Errorf("%s FAILED: Expected '%s' in output\n"+
+					"Input:  %s\n"+
+					"Output: %s\n"+
+					"Reason: %s",
+					tt.name, tt.shouldContain, tt.input, result, tt.desc)
 			}
 		})
 	}
