@@ -1035,45 +1035,7 @@ func TestClient_prepareXMLForLogging_ReDoSPrevention(t *testing.T) {
 func TestClient_redactSensitiveData_XPathFilters(t *testing.T) {
 	// Create a client with the full set of redaction patterns (matching NewClient)
 	client := &Client{
-		redactionPatterns: []*regexp.Regexp{
-			// Element content
-			regexp.MustCompile(`<password>.*?</password>`),
-			regexp.MustCompile(`<secret>.*?</secret>`),
-			regexp.MustCompile(`<key>.*?</key>`),
-			regexp.MustCompile(`<community>.*?</community>`),
-			// CDATA sections
-			regexp.MustCompile(`<password><!\[CDATA\[.*?\]\]></password>`),
-			regexp.MustCompile(`<secret><!\[CDATA\[.*?\]\]></secret>`),
-			regexp.MustCompile(`<key><!\[CDATA\[.*?\]\]></key>`),
-			regexp.MustCompile(`<community><!\[CDATA\[.*?\]\]></community>`),
-			// Namespace-aware elements
-			regexp.MustCompile(`<[a-zA-Z0-9_-]+:password[^>]*>.*?</[a-zA-Z0-9_-]+:password>`),
-			regexp.MustCompile(`<[a-zA-Z0-9_-]+:secret[^>]*>.*?</[a-zA-Z0-9_-]+:secret>`),
-			regexp.MustCompile(`<[a-zA-Z0-9_-]+:key[^>]*>.*?</[a-zA-Z0-9_-]+:key>`),
-			regexp.MustCompile(`<[a-zA-Z0-9_-]+:community[^>]*>.*?</[a-zA-Z0-9_-]+:community>`),
-			// Namespaced CDATA sections
-			regexp.MustCompile(`<[a-zA-Z0-9_-]+:password[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:password>`),
-			regexp.MustCompile(`<[a-zA-Z0-9_-]+:secret[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:secret>`),
-			regexp.MustCompile(`<[a-zA-Z0-9_-]+:key[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:key>`),
-			regexp.MustCompile(`<[a-zA-Z0-9_-]+:community[^>]*><!\[CDATA\[.*?\]\]></[a-zA-Z0-9_-]+:community>`),
-			// Attribute values (double quotes)
-			regexp.MustCompile(`password="[^"]*"`),
-			regexp.MustCompile(`secret="[^"]*"`),
-			regexp.MustCompile(`key="[^"]*"`),
-			regexp.MustCompile(`community="[^"]*"`),
-			// Attribute values (single quotes)
-			regexp.MustCompile(`password='[^']*'`),
-			regexp.MustCompile(`secret='[^']*'`),
-			regexp.MustCompile(`key='[^']*'`),
-			regexp.MustCompile(`community='[^']*'`),
-			// XPath predicates (within square brackets)
-			regexp.MustCompile(`\[password="[^"]*"\]`),
-			regexp.MustCompile(`\[password='[^']*'\]`),
-			regexp.MustCompile(`\[secret="[^"]*"\]`),
-			regexp.MustCompile(`\[secret='[^']*'\]`),
-			regexp.MustCompile(`\[key="[^"]*"\]`),
-			regexp.MustCompile(`\[key='[^']*'\]`),
-		},
+		redactionPatterns: defaultRedactionPatterns,
 	}
 
 	tests := []struct {
