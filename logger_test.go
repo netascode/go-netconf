@@ -240,6 +240,48 @@ func TestClient_redactSensitiveData(t *testing.T) {
 	}
 }
 
+func TestClient_redactSensitiveData_NestedStructures(t *testing.T) {
+	client := &Client{
+		redactionPatterns: defaultRedactionPatterns,
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Nested password (Cisco YANG style)",
+			input:    "<username><name>admin</name><password><password>secret123</password></password></username>",
+			expected: "<username><name>admin</name><password>[REDACTED]</password></username>",
+		},
+		{
+			name:     "Deeply nested password",
+			input:    "<config><password><password><password>secret</password></password></password></config>",
+			expected: "<config><password>[REDACTED]</password></config>",
+		},
+		{
+			name:     "Multiple nested passwords",
+			input:    "<users><user1><password><password>pass1</password></password></user1><user2><password><password>pass2</password></password></user2></users>",
+			expected: "<users><user1><password>[REDACTED]</password></user1><user2><password>[REDACTED]</password></user2></users>",
+		},
+		{
+			name:     "Mixed simple and nested passwords",
+			input:    "<config><simple><password>secret1</password></simple><nested><password><password>secret2</password></password></nested></config>",
+			expected: "<config><simple><password>[REDACTED]</password></simple><nested><password>[REDACTED]</password></nested></config>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := client.redactSensitiveData(tt.input)
+			if result != tt.expected {
+				t.Errorf("Expected:\n%s\nGot:\n%s", tt.expected, result)
+			}
+		})
+	}
+}
+
 func TestClient_prepareXMLForLogging(t *testing.T) {
 	client := &Client{
 		prettyPrintLogs: true,
@@ -286,9 +328,13 @@ func TestClient_prepareXMLForLogging(t *testing.T) {
 		if !strings.Contains(result, "[REDACTED]") {
 			t.Errorf("Expected [REDACTED] in output, got: %s", result)
 		}
-		// Should be on one line (not pretty printed)
-		if strings.Contains(result, "\n") {
-			t.Errorf("Expected no newlines (pretty print disabled), got: %s", result)
+		// Should start with newline for formatting
+		if !strings.HasPrefix(result, "\n") {
+			t.Errorf("Expected leading newline for formatting, got: %s", result)
+		}
+		// Should not have additional newlines (not pretty printed - single line XML)
+		if strings.Count(result, "\n") > 1 {
+			t.Errorf("Expected only leading newline (not pretty printed), got: %s", result)
 		}
 	})
 }
@@ -359,25 +405,19 @@ func TestDefaultLogger_LogInjectionPrevention(t *testing.T) {
 
 	t.Run("Newline injection", func(t *testing.T) {
 		buf.Reset()
-		// Attempt to inject a fake ERROR log line
-		logger.Info(context.Background(), "Test", "malicious", "value\nFAKE ERROR")
+		// Newlines are now preserved for multi-line XML logging
+		logger.Info(context.Background(), "Test", "xml", "value\nFAKE ERROR")
 
 		output := buf.String()
-		lines := strings.Split(output, "\n")
 
-		// Should only have 1 log line + final newline = 2 elements
-		if len(lines) > 2 {
-			t.Errorf("Log injection detected: %d lines, expected 2", len(lines))
+		// Newlines are preserved for multi-line logging
+		if !strings.Contains(output, "\nFAKE ERROR") {
+			t.Error("Newline should be preserved for multi-line XML logging")
 		}
 
-		// Newline should be replaced with space
-		if strings.Contains(output, "\nFAKE ERROR") {
-			t.Error("Newline was not sanitized")
-		}
-
-		// Should contain sanitized version
+		// Should contain the full content
 		if !strings.Contains(output, "FAKE ERROR") {
-			t.Errorf("Expected sanitized content in output, got: %s", output)
+			t.Errorf("Expected content in output, got: %s", output)
 		}
 	})
 
@@ -443,13 +483,14 @@ func TestDefaultLogger_LongValueTruncation(t *testing.T) {
 		buf.Reset()
 
 		// Create a very long value (> MaxLogValueLength)
-		longValue := strings.Repeat("A", 2000)
+		// MaxLogValueLength is 100000, so use 150000 to trigger truncation
+		longValue := strings.Repeat("A", 150000)
 		logger.Info(context.Background(), "Test", "key", longValue)
 
 		output := buf.String()
 
 		// Should be truncated
-		if strings.Contains(output, strings.Repeat("A", 2000)) {
+		if strings.Contains(output, strings.Repeat("A", 150000)) {
 			t.Error("Long value was not truncated")
 		}
 
@@ -458,9 +499,14 @@ func TestDefaultLogger_LongValueTruncation(t *testing.T) {
 			t.Error("Truncation marker not found")
 		}
 
-		// Should contain first part of the value
+		// Should contain first part of the value (first 100 chars)
 		if !strings.Contains(output, strings.Repeat("A", 100)) {
 			t.Error("Expected truncated value to contain first part")
+		}
+
+		// Should NOT contain the end of the long value
+		if strings.Contains(output, strings.Repeat("A", 140000)) {
+			t.Error("Expected long tail to be truncated")
 		}
 	})
 
@@ -500,12 +546,12 @@ func TestSanitizeLogValue(t *testing.T) {
 		{
 			name:     "String with newline",
 			input:    "line1\nline2",
-			expected: "line1 line2",
+			expected: "line1\nline2", // Newlines preserved for multi-line XML logging
 		},
 		{
 			name:     "String with carriage return",
 			input:    "line1\rline2",
-			expected: "line1 line2",
+			expected: "line1line2", // Carriage returns removed (security risk)
 		},
 		{
 			name:     "String with tab",

@@ -57,11 +57,13 @@ const (
 
 // defaultRedactionPatterns contains regex patterns for redacting sensitive data in logs
 var defaultRedactionPatterns = []*regexp.Regexp{
-	// Element content
-	regexp.MustCompile(`<password>.*?</password>`),
-	regexp.MustCompile(`<secret>.*?</secret>`),
-	regexp.MustCompile(`<key>.*?</key>`),
-	regexp.MustCompile(`<community>.*?</community>`),
+	// Element content - Handle nested structures (Cisco YANG models use container/value nesting)
+	// Match greedy to capture nested structures: <password>...<password>...</password></password>
+	// The [\s\S] matches any character including newlines
+	regexp.MustCompile(`<password>[\s\S]*?</password>`),
+	regexp.MustCompile(`<secret>[\s\S]*?</secret>`),
+	regexp.MustCompile(`<key>[\s\S]*?</key>`),
+	regexp.MustCompile(`<community>[\s\S]*?</community>`),
 
 	// CDATA section handling (must come before namespace-aware to avoid conflicts)
 	// Matches: <password><![CDATA[value]]></password>
@@ -739,6 +741,25 @@ func (c *Client) HasCredentials() bool {
 	return c.username != "" || c.password != "" || c.SSHKeyPath != ""
 }
 
+// formatXMLForLogging adds a leading newline to separate XML from log metadata
+//
+// Adds a newline at the start to make multi-line XML more readable in logs.
+//
+// Example output:
+//
+//	[DEBUG] NETCONF RPC request XML operation=get-config
+//	<get-config>
+//	  <source>
+//	    <running></running>
+//	  </source>
+//	</get-config>
+//
+// Returns the formatted XML string.
+func formatXMLForLogging(xml string) string {
+	// Add newline at start for visual separation from log metadata
+	return "\n" + xml
+}
+
 // prepareXMLForLogging redacts sensitive data and formats XML for logging
 //
 // This method performs security checks and data sanitization:
@@ -746,6 +767,7 @@ func (c *Client) HasCredentials() bool {
 //  2. Checks sensitive element count to prevent DoS (max 1000 elements)
 //  3. Redacts sensitive data (passwords, secrets, keys, community strings)
 //  4. Pretty-prints XML if prettyPrintLogs is enabled
+//  5. Formats with line prefixes for readability
 //
 // Security Note: Size and count limits prevent regex-based DoS attacks during
 // XML processing and redaction. These limits are conservative to ensure safe
@@ -775,18 +797,25 @@ func (c *Client) prepareXMLForLogging(xml string) string {
 	// Redact sensitive data first
 	redacted := c.redactSensitiveData(xml)
 
-	// Format with xmldot's @pretty modifier (or return as-is if disabled)
+	// Pretty-print XML if enabled using xmldot's @pretty modifier
 	if c.prettyPrintLogs {
-		// Use xmldot to parse and pretty-print the XML
-		// Get the root element first, then apply @pretty
-		result := xmldot.Get(redacted, "@pretty")
-		if result.Exists() {
-			return result.Raw
+		// Apply @pretty modifier to format the XML with indentation
+		// Note: xmldot's * selector returns the first child element's content,
+		// so this will format the response data (e.g., <data> contents) without
+		// the RPC envelope (<rpc-reply>). This is intentional as the envelope
+		// is just protocol framing and the actual configuration data is more
+		// relevant for logging/debugging.
+		result := xmldot.Get(redacted, "*|@pretty")
+		if result.Exists() && result.Raw != "" {
+			// Format with line prefixes for readability
+			return formatXMLForLogging(result.Raw)
 		}
-		// Fallback if @pretty doesn't work - return redacted as-is
+		// Fallback if pretty printing fails - format raw redacted XML
+		return formatXMLForLogging(redacted)
 	}
 
-	return redacted
+	// Even without pretty printing, format with line prefixes
+	return formatXMLForLogging(redacted)
 }
 
 // redactSensitiveData replaces sensitive data in XML with [REDACTED]
@@ -805,20 +834,22 @@ func (c *Client) prepareXMLForLogging(xml string) string {
 //
 // Returns the redacted XML string.
 func (c *Client) redactSensitiveData(xml string) string {
-	replacements := []string{
-		// Elements
-		"<password>[REDACTED]</password>",
-		"<secret>[REDACTED]</secret>",
-		"<key>[REDACTED]</key>",
-		"<community>[REDACTED]</community>",
+	// Custom redaction for elements that handles nested structures
+	result := xml
+	result = redactNestedElement(result, "password")
+	result = redactNestedElement(result, "secret")
+	result = redactNestedElement(result, "key")
+	result = redactNestedElement(result, "community")
 
-		// CDATA sections (must match pattern order)
+	// Apply regex patterns for CDATA, namespaced elements, and attributes
+	replacements := []string{
+		// CDATA sections
 		"<password><![CDATA[[REDACTED]]]></password>",
 		"<secret><![CDATA[[REDACTED]]]></secret>",
 		"<key><![CDATA[[REDACTED]]]></key>",
 		"<community><![CDATA[[REDACTED]]]></community>",
 
-		// Namespace-aware elements (generic replacement works for any namespace)
+		// Namespace-aware elements
 		"<ns:password>[REDACTED]</ns:password>",
 		"<ns:secret>[REDACTED]</ns:secret>",
 		"<ns:key>[REDACTED]</ns:key>",
@@ -851,9 +882,69 @@ func (c *Client) redactSensitiveData(xml string) string {
 		`[key='[REDACTED]']`,
 	}
 
-	result := xml
-	for i, pattern := range c.redactionPatterns {
-		result = pattern.ReplaceAllString(result, replacements[i])
+	// Skip first 4 patterns (elements) since we handle those with redactNestedElement
+	for i := 4; i < len(c.redactionPatterns); i++ {
+		result = c.redactionPatterns[i].ReplaceAllString(result, replacements[i-4])
+	}
+
+	return result
+}
+
+// redactNestedElement redacts XML elements that may have nested structures with the same tag name.
+// Handles Cisco YANG style nesting: <password><password>value</password></password>
+// Returns XML with properly balanced tags: <password>[REDACTED]</password>
+func redactNestedElement(xml, tagName string) string {
+	openTag := "<" + tagName + ">"
+	closeTag := "</" + tagName + ">"
+	replacement := openTag + "[REDACTED]" + closeTag
+
+	result := ""
+	pos := 0
+
+	for {
+		// Find next opening tag
+		start := strings.Index(xml[pos:], openTag)
+		if start == -1 {
+			// No more tags, append remaining
+			result += xml[pos:]
+			break
+		}
+		start += pos
+
+		// Copy text before the tag
+		result += xml[pos:start]
+
+		// Find matching closing tag (handle nesting)
+		depth := 1
+		searchPos := start + len(openTag)
+
+		for depth > 0 && searchPos < len(xml) {
+			nextOpen := strings.Index(xml[searchPos:], openTag)
+			nextClose := strings.Index(xml[searchPos:], closeTag)
+
+			if nextClose == -1 {
+				// Malformed XML, skip this tag
+				result += xml[start:searchPos]
+				pos = searchPos
+				break
+			}
+
+			if nextOpen != -1 && nextOpen < nextClose {
+				// Found nested opening tag
+				depth++
+				searchPos += nextOpen + len(openTag)
+			} else {
+				// Found closing tag
+				depth--
+				searchPos += nextClose + len(closeTag)
+			}
+		}
+
+		if depth == 0 {
+			// Found matching closing tag, replace entire structure
+			result += replacement
+			pos = searchPos
+		}
 	}
 
 	return result

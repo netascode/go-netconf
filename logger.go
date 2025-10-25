@@ -13,7 +13,7 @@ import (
 
 // MaxLogValueLength limits the length of log values to prevent log injection
 // and excessive log file growth. Values longer than this are truncated.
-const MaxLogValueLength = 1024
+const MaxLogValueLength = 100000
 
 // Logger interface for pluggable logging support
 //
@@ -178,14 +178,14 @@ func (l *DefaultLogger) Error(ctx context.Context, msg string, keysAndValues ...
 // and limit log size. Handles control characters, ANSI escape sequences,
 // Unicode attacks (RTL override, zero-width), and excessive length.
 //
-// Security Note: Log injection attacks exploit control characters (especially
-// newlines) to inject fake log entries or hide malicious activity. This function
-// neutralizes such attempts by replacing control characters with safe alternatives.
+// Security Note: Newlines (\n) are preserved to support multi-line XML logging
+// with pretty printing. Other control characters that could enable log injection
+// attacks (carriage return, ANSI escape sequences, etc.) are still sanitized.
 //
-// Example attack prevented:
+// Example sanitization:
 //
-//	Input: "user\n[ERROR] Fake attack message"
-//	Output: "user .[ERROR].Fake.attack.message"
+//	Input: "user\r\n\x1b[31mFake\x1b[0m"
+//	Output: "user\n.31mFake.0m"  (newlines preserved, ANSI codes neutralized)
 //
 // Returns the sanitized string value.
 func sanitizeLogValue(val any) string {
@@ -233,8 +233,10 @@ func sanitizeLogValue(val any) string {
 
 		// ASCII control characters and ANSI escape sequences
 		switch r {
-		case '\n', '\r': // Newline injection
-			builder.WriteRune(' ')
+		case '\n': // Preserve newlines for multi-line XML logging
+			builder.WriteRune('\n')
+		case '\r': // Carriage return can enable log injection, remove it
+			// Skip entirely (don't write anything)
 		case '\t': // Tab injection
 			builder.WriteRune(' ')
 		case 0x1B: // ESC - start of ANSI sequence
