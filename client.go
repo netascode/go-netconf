@@ -1405,7 +1405,15 @@ func (c *Client) executeRPC(ctx context.Context, req *Req) (Res, error) {
 			rpcXML := c.buildEditConfigXML(req)
 			scrapligoRes, err = c.driver.RPC(opoptions.WithFilter(rpcXML))
 		} else {
-			scrapligoRes, err = c.driver.EditConfig(req.Target, req.Config)
+			// For standard edit-config, ensure config has <config> wrapper
+			// scrapligo's EditConfig expects the caller to provide the config element
+			configContent := req.Config
+			result := xmldot.Get(req.Config, "config")
+			if !result.Exists() {
+				// Config doesn't have <config> wrapper, add it
+				configContent = "<config>" + req.Config + "</config>"
+			}
+			scrapligoRes, err = c.driver.EditConfig(req.Target, configContent)
 		}
 
 	case "copy-config":
@@ -1636,6 +1644,11 @@ func (c *Client) parseRPCErrors(responseXML string) []ErrorModel {
 // This method constructs the full edit-config RPC according to RFC 6241 Section 7.2,
 // including optional default-operation, test-option, and error-option elements.
 //
+// Per RFC 6241, the <config> element in edit-config should contain the configuration
+// data directly, not wrapped in another <config> element. If the caller provides
+// configuration with an outer <config> wrapper (e.g., from Body builder), this method
+// extracts the inner content automatically.
+//
 // Uses xmldot for safe XML building with automatic escaping.
 //
 // Returns the complete RPC XML string.
@@ -1661,8 +1674,24 @@ func (c *Client) buildEditConfigXML(req *Req) string {
 		xml, _ = xmldot.Set(xml, "edit-config.error-option", req.ErrorOption) //nolint:errcheck // XML building errors caught during validation
 	}
 
-	// Config data (raw XML content)
-	xml, _ = xmldot.SetRaw(xml, "edit-config.config", req.Config) //nolint:errcheck // XML building errors caught during validation
+	// Extract config content - strip outer <config> wrapper if present
+	// Per RFC 6241, edit-config's <config> element should contain the configuration
+	// data directly, not wrapped in another <config> element
+	configContent := req.Config
+
+	// Check if user provided <config>...</config> wrapper and extract inner content
+	result := xmldot.Get(req.Config, "config")
+	if result.Exists() {
+		// User provided <config> wrapper (e.g., from Body builder), extract inner XML content
+		// Use |@raw modifier to get the raw inner XML without the <config> wrapper
+		innerContent := xmldot.Get(req.Config, "config|@raw").String()
+		if innerContent != "" {
+			configContent = innerContent
+		}
+	}
+
+	// Config data (raw XML content without outer <config> wrapper)
+	xml, _ = xmldot.SetRaw(xml, "edit-config.config", configContent) //nolint:errcheck // XML building errors caught during validation
 
 	return xml
 }
