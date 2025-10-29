@@ -9,6 +9,69 @@ import (
 	"testing"
 )
 
+func TestNewBody(t *testing.T) {
+	t.Run("create from existing XML", func(t *testing.T) {
+		existingXML := `<system><hostname>router1</hostname></system>`
+		body := NewBody(existingXML)
+
+		xml := body.Res()
+		if !strings.Contains(xml, "router1") {
+			t.Errorf("expected XML to contain 'router1', got: %s", xml)
+		}
+	})
+
+	t.Run("create and extend XML", func(t *testing.T) {
+		existingXML := `<config><system><hostname>router1</hostname></system></config>`
+		body := NewBody(existingXML).
+			Set("config.system.domain-name", "example.com")
+
+		xml, err := body.String()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if !strings.Contains(xml, "router1") {
+			t.Errorf("expected XML to contain 'router1', got: %s", xml)
+		}
+		if !strings.Contains(xml, "example.com") {
+			t.Errorf("expected XML to contain 'example.com', got: %s", xml)
+		}
+	})
+
+	t.Run("create from empty string", func(t *testing.T) {
+		body := NewBody("")
+
+		// Empty body can be extended with Set
+		body = body.Set("config.hostname", "test")
+		xml, err := body.String()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(xml, "test") {
+			t.Errorf("expected XML to contain 'test', got: %s", xml)
+		}
+	})
+
+	t.Run("create and chain operations", func(t *testing.T) {
+		existingXML := `<config><interfaces></interfaces></config>`
+		body := NewBody(existingXML).
+			Set("config.interfaces.interface.name", "eth0").
+			SetAttr("config.interfaces.interface", "operation", "merge")
+
+		xml, err := body.String()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if !strings.Contains(xml, "eth0") {
+			t.Errorf("expected XML to contain 'eth0', got: %s", xml)
+		}
+		if !strings.Contains(xml, `operation="merge"`) {
+			t.Errorf("expected XML to contain operation attribute, got: %s", xml)
+		}
+	})
+}
+
 func TestBodySet(t *testing.T) {
 	t.Run("single set operation", func(t *testing.T) {
 		body := Body{}.

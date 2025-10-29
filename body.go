@@ -36,6 +36,13 @@ type Body struct {
 	err error
 }
 
+// NewBody creates a new Body initialized with the provided XML string.
+//
+// Returns a Body initialized with the provided XML.
+func NewBody(xml string) Body {
+	return Body{str: xml, err: nil}
+}
+
 // String returns the XML string representation of the Body and any error encountered during building
 //
 // This method returns both the XML string and any error that occurred during the building process.
