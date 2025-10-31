@@ -198,6 +198,7 @@ func NewClient(host string, opts ...func(*Client)) (*Client, error) {
 		options.WithAuthPassword(client.password),
 		options.WithPort(client.Port),
 		options.WithTimeoutSocket(client.ConnectTimeout),
+		options.WithTimeoutOps(client.OperationTimeout),
 	}
 
 	// Only disable host key verification if explicitly requested
@@ -1094,6 +1095,7 @@ func (c *Client) reconnect() error {
 		options.WithAuthPassword(c.password),
 		options.WithPort(c.Port),
 		options.WithTimeoutSocket(c.ConnectTimeout),
+		options.WithTimeoutOps(c.OperationTimeout),
 	}
 
 	if c.InsecureSkipVerify {
@@ -1280,12 +1282,21 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 
 		// Not transient or max retries reached
 		if !isTransient || attempt >= c.MaxRetries {
-			// Log operation failure
-			c.logger.Error(ctx, "NETCONF operation failed",
-				"operation", req.Operation,
-				"retries", attempt,
-				"transient", isTransient,
-				"errorCount", len(res.Errors))
+			// Log operation failure with error details
+			if err != nil {
+				c.logger.Error(ctx, "NETCONF operation failed",
+					"operation", req.Operation,
+					"retries", attempt,
+					"transient", isTransient,
+					"errorCount", len(res.Errors),
+					"error", err.Error())
+			} else {
+				c.logger.Error(ctx, "NETCONF operation failed",
+					"operation", req.Operation,
+					"retries", attempt,
+					"transient", isTransient,
+					"errorCount", len(res.Errors))
+			}
 
 			// Log each RPC error
 			for i, rpcErr := range res.Errors {
@@ -1368,6 +1379,61 @@ func (c *Client) executeRPC(ctx context.Context, req *Req) (Res, error) {
 	// Check for nil driver before operation
 	if c.driver == nil {
 		return Res{}, fmt.Errorf("operation %s failed: driver is nil (connection closed)", req.Operation)
+	}
+
+	// DIAGNOSTIC: Log session state before operation to help diagnose Terraform plugin issues
+	c.logger.Debug(ctx, "NETCONF RPC request",
+		"operation", req.Operation,
+		"target", req.Target,
+		"sessionID", c.SessionID())
+
+	// Log request XML BEFORE sending to catch operations that timeout at transport layer
+	// Determine what XML content to log based on operation type
+	var xmlToLog string
+	switch req.Operation {
+	case "edit-config":
+		// For edit-config, ensure <config> wrapper is present (matching what will be sent)
+		// Note: xmldot.Get returns the *content* of the element, not including the element itself
+		// So we check if <config> exists, and if not, we add it
+		if !xmldot.Get(req.Config, "config").Exists() {
+			// No <config> wrapper, add it
+			xmlToLog = "<config>" + req.Config + "</config>"
+		} else {
+			// Has <config> wrapper already, use as-is
+			xmlToLog = req.Config
+		}
+	case "get-config", "get":
+		xmlToLog = req.Filter.Content
+	case "lock", "unlock", "commit", "discard", "validate":
+		// Simple operations have no XML content, just log metadata
+		c.logger.Debug(ctx, "NETCONF RPC request",
+			"operation", req.Operation,
+			"target", req.Target)
+	default:
+		// For other operations (rpc, copy-config, etc.)
+		xmlToLog = req.Config
+	}
+
+	// Log XML content if present (reusing post-send logging logic)
+	if xmlToLog != "" {
+		if len(xmlToLog) <= MaxXMLSizeForLogging {
+			if !utf8.ValidString(xmlToLog) {
+				c.logger.Warn(ctx, "Invalid UTF-8 in NETCONF request XML",
+					"operation", req.Operation,
+					"size", len(xmlToLog))
+			} else {
+				requestXML := c.prepareXMLForLogging(xmlToLog)
+				c.logger.Debug(ctx, "NETCONF RPC request XML",
+					"operation", req.Operation,
+					"xml", requestXML)
+			}
+		} else {
+			c.logger.Debug(ctx, "NETCONF RPC request XML (truncated)",
+				"operation", req.Operation,
+				"size", len(xmlToLog),
+				"limit", MaxXMLSizeForLogging,
+				"xml", "[XML TOO LARGE FOR LOGGING]")
+		}
 	}
 
 	switch req.Operation {
@@ -1465,38 +1531,18 @@ func (c *Client) executeRPC(ctx context.Context, req *Req) (Res, error) {
 	}
 
 	if err != nil {
-		return Res{}, fmt.Errorf("operation %s failed: %w", req.Operation, err)
+		// Add context about what was being sent when timeout/error occurred
+		if req.Operation == "edit-config" {
+			configSize := len(req.Config)
+			return Res{}, fmt.Errorf("operation %s failed (target=%s, configSize=%d): %w",
+				req.Operation, req.Target, configSize, err)
+		}
+		return Res{}, fmt.Errorf("operation %s failed (target=%s): %w", req.Operation, req.Target, err)
 	}
 
 	// Check for nil response
 	if scrapligoRes == nil {
 		return Res{}, fmt.Errorf("operation %s: received nil response from driver", req.Operation)
-	}
-
-	// Log request XML content (Debug level only)
-	// Pre-check size and level to avoid expensive processing when not needed
-	if len(scrapligoRes.Input) > 0 {
-		// Pre-check size limit before string conversion (avoid allocation)
-		if len(scrapligoRes.Input) <= MaxXMLSizeForLogging {
-			// Validate UTF-8 encoding
-			if !utf8.Valid(scrapligoRes.Input) {
-				c.logger.Warn(ctx, "Invalid UTF-8 in NETCONF request XML",
-					"operation", req.Operation,
-					"size", len(scrapligoRes.Input))
-			} else {
-				requestXML := c.prepareXMLForLogging(string(scrapligoRes.Input))
-				c.logger.Debug(ctx, "NETCONF RPC request XML",
-					"operation", req.Operation,
-					"xml", requestXML)
-			}
-		} else {
-			// Log truncation message only (cheap operation)
-			c.logger.Debug(ctx, "NETCONF RPC request XML (truncated)",
-				"operation", req.Operation,
-				"size", len(scrapligoRes.Input),
-				"limit", MaxXMLSizeForLogging,
-				"xml", "[XML TOO LARGE FOR LOGGING]")
-		}
 	}
 
 	// Log response XML content (Debug level only)
