@@ -73,52 +73,16 @@ func (body Body) Err() error {
 	return body.err
 }
 
-// initializeXMLIfEmpty initializes an empty XML string with a minimal root element
-// inferred from the first segment of the path.
-//
-// If xml is empty and path is non-empty, extracts the first path segment
-// (before '.', '@', or '[') and creates a root element with that name.
-//
-// Returns the initialized XML string (original xml if not empty, or new root element).
-func initializeXMLIfEmpty(xml, path string) string {
-	// If already has content or path is empty, return as-is
-	if xml != "" || path == "" {
-		return xml
-	}
-
-	// Extract first path segment as root element name
-	firstDot := 0
-	for i, ch := range path {
-		if ch == '.' || ch == '@' || ch == '[' {
-			firstDot = i
-			break
-		}
-	}
-	if firstDot == 0 {
-		firstDot = len(path)
-	}
-
-	rootName := path[:firstDot]
-	return "<" + rootName + "></" + rootName + ">"
-}
-
 // Set sets an XML element at the given path to the specified value
 //
 // The path uses dot notation to navigate the XML structure.
 // The value can be any type that xmldot supports (string, int, bool, etc.).
 //
-// If the body is empty, this will automatically create a minimal root element
-// based on the first segment of the path.
+// If the body is empty, xmldot will automatically create the XML structure
+// based on the path.
 //
 // If an error occurs, the error is stored and returned by String() or Err().
 // Once an error occurs, all subsequent operations are no-ops that preserve the error.
-//
-// Example:
-//
-//	body := netconf.Body{}.
-//	    Set("config.system.hostname", "router1").
-//	    Set("config.system.domain-name", "example.com")
-//	xml, err := body.String()
 //
 // Returns the Body for method chaining.
 func (body Body) Set(path string, value any) Body {
@@ -127,10 +91,8 @@ func (body Body) Set(path string, value any) Body {
 		return body
 	}
 
-	// Initialize empty XML with root element if needed
-	xml := initializeXMLIfEmpty(body.str, path)
-
-	result, err := xmldot.Set(xml, path, value)
+	// xmldot now handles empty XML and multi-root detection automatically
+	result, err := xmldot.Set(body.str, path, value)
 	if err != nil {
 		// Store error and return body with error state
 		return Body{str: body.str, err: fmt.Errorf("Set(%q): %w", path, err)}
@@ -160,10 +122,7 @@ func (body Body) SetRaw(path, rawXML string) Body {
 		return body
 	}
 
-	// Initialize empty XML with root element if needed
-	xml := initializeXMLIfEmpty(body.str, path)
-
-	result, err := xmldot.SetRaw(xml, path, rawXML)
+	result, err := xmldot.SetRaw(body.str, path, rawXML)
 	if err != nil {
 		return Body{str: body.str, err: fmt.Errorf("SetRaw(%q): %w", path, err)}
 	}

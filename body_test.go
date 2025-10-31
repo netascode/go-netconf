@@ -269,7 +269,8 @@ func TestBodySetError(t *testing.T) {
 	})
 
 	t.Run("invalid path", func(t *testing.T) {
-		body := Body{}.Set("..invalid", "value")
+		// Empty path should error - xmldot rejects empty paths
+		body := Body{}.Set("", "value")
 		_, err := body.String()
 		if err == nil {
 			t.Error("expected error for invalid path")
@@ -348,7 +349,7 @@ func TestBodySetAttrError(t *testing.T) {
 	t.Run("SetAttr on invalid path", func(t *testing.T) {
 		body := Body{}.
 			Set("config.interface", "test").
-			SetAttr("invalid..path", "attr", "value")
+			SetAttr("", "attr", "value") // Empty path should error
 
 		_, err := body.String()
 		if err == nil {
@@ -524,4 +525,75 @@ func ExampleBody_Set() {
 	fmt.Printf("XML length: %d bytes\n", len(xml))
 	// Output: Configuration built successfully
 	// XML length: 200 bytes
+}
+
+// TestBodySetMultipleRoots tests that Body.Set() properly handles multiple root-level sibling elements
+func TestBodySetMultipleRoots(t *testing.T) {
+	t.Run("ACL with deny and permit siblings", func(t *testing.T) {
+		// This is the real-world use case from terraform-provider-iosxe ACLs
+		// where we have both deny and permit at the same level
+		body := Body{}.
+			Set("sequence", "10").
+			Set("deny.std-ace.ipv4-address-prefix", "10.0.0.0").
+			Set("deny.std-ace.mask", "0.0.0.255").
+			Set("permit.std-ace.ipv4-address-prefix", "192.168.0.0").
+			Set("permit.std-ace.mask", "0.0.255.255")
+
+		xml, err := body.String()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		t.Logf("Generated XML:\n%s", xml)
+
+		// Verify we have <sequence>, <deny>, and <permit> as separate root-level siblings
+		if !strings.Contains(xml, "<sequence>10</sequence>") {
+			t.Errorf("expected separate <sequence> element, got: %s", xml)
+		}
+		if !strings.Contains(xml, "<deny>") {
+			t.Errorf("expected <deny> element, got: %s", xml)
+		}
+		if !strings.Contains(xml, "<permit>") {
+			t.Errorf("expected <permit> element, got: %s", xml)
+		}
+		if !strings.Contains(xml, "<ipv4-address-prefix>10.0.0.0</ipv4-address-prefix>") {
+			t.Errorf("expected deny prefix in XML, got: %s", xml)
+		}
+		if !strings.Contains(xml, "<ipv4-address-prefix>192.168.0.0</ipv4-address-prefix>") {
+			t.Errorf("expected permit prefix in XML, got: %s", xml)
+		}
+
+		// Verify it's NOT all nested inside <sequence> or duplicated
+		// The XML should have the structure:
+		// <sequence>10</sequence><deny>...</deny><permit>...</permit>
+		// NOT: <sequence>10<deny>...</deny><permit>...</permit></sequence>
+		if strings.Contains(xml, "<sequence>10<deny>") || strings.Contains(xml, "</deny></sequence>") {
+			t.Errorf("deny should not be nested inside sequence, got: %s", xml)
+		}
+	})
+
+	t.Run("multiple different root elements", func(t *testing.T) {
+		body := Body{}.
+			Set("hostname", "router1").
+			Set("domain", "example.com").
+			Set("port", "8080")
+
+		xml, err := body.String()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		t.Logf("Generated XML:\n%s", xml)
+
+		// All should be separate root elements
+		if !strings.Contains(xml, "<hostname>router1</hostname>") {
+			t.Errorf("expected hostname element, got: %s", xml)
+		}
+		if !strings.Contains(xml, "<domain>example.com</domain>") {
+			t.Errorf("expected domain element, got: %s", xml)
+		}
+		if !strings.Contains(xml, "<port>8080</port>") {
+			t.Errorf("expected port element, got: %s", xml)
+		}
+	})
 }
