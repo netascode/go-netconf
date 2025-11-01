@@ -30,6 +30,21 @@ const (
 	filterTypeXPath  = "xpath"
 )
 
+// NETCONF operation names
+const (
+	opGet          = "get"
+	opGetConfig    = "get-config"
+	opEditConfig   = "edit-config"
+	opCopyConfig   = "copy-config"
+	opDeleteConfig = "delete-config"
+	opLock         = "lock"
+	opUnlock       = "unlock"
+	opCommit       = "commit"
+	opDiscard      = "discard"
+	opValidate     = "validate"
+	opRPC          = "rpc"
+)
+
 // Default client configuration values
 const (
 	DefaultPort               = 830
@@ -198,6 +213,7 @@ func NewClient(host string, opts ...func(*Client)) (*Client, error) {
 		options.WithAuthPassword(client.password),
 		options.WithPort(client.Port),
 		options.WithTimeoutSocket(client.ConnectTimeout),
+		options.WithTimeoutOps(client.OperationTimeout),
 	}
 
 	// Only disable host key verification if explicitly requested
@@ -1094,6 +1110,7 @@ func (c *Client) reconnect() error {
 		options.WithAuthPassword(c.password),
 		options.WithPort(c.Port),
 		options.WithTimeoutSocket(c.ConnectTimeout),
+		options.WithTimeoutOps(c.OperationTimeout),
 	}
 
 	if c.InsecureSkipVerify {
@@ -1280,12 +1297,21 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 
 		// Not transient or max retries reached
 		if !isTransient || attempt >= c.MaxRetries {
-			// Log operation failure
-			c.logger.Error(ctx, "NETCONF operation failed",
-				"operation", req.Operation,
-				"retries", attempt,
-				"transient", isTransient,
-				"errorCount", len(res.Errors))
+			// Log operation failure with error details
+			if err != nil {
+				c.logger.Error(ctx, "NETCONF operation failed",
+					"operation", req.Operation,
+					"retries", attempt,
+					"transient", isTransient,
+					"errorCount", len(res.Errors),
+					"error", err.Error())
+			} else {
+				c.logger.Error(ctx, "NETCONF operation failed",
+					"operation", req.Operation,
+					"retries", attempt,
+					"transient", isTransient,
+					"errorCount", len(res.Errors))
+			}
 
 			// Log each RPC error
 			for i, rpcErr := range res.Errors {
@@ -1361,111 +1387,20 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 func (c *Client) executeRPC(ctx context.Context, req *Req) (Res, error) {
 	_ = ctx // Accepted for future compatibility, timeout enforced by caller
 
-	// Delegate to scrapligo driver based on operation
-	var scrapligoRes *response.NetconfResponse
-	var err error
-
 	// Check for nil driver before operation
 	if c.driver == nil {
 		return Res{}, fmt.Errorf("operation %s failed: driver is nil (connection closed)", req.Operation)
 	}
 
-	switch req.Operation {
-	case "get":
-		// Get method signature: Get(filter string, opts ...util.Option)
-		// The filter string is the XML subtree for subtree filters, or empty string
-		// For XPath filters, the XPath expression is passed as the filter string
-		// Note: scrapligo driver/netconf may require filter type to be indicated via options
-		// for XPath filters (this is validated but needs integration testing)
-		filterStr := req.Filter.Content
-		scrapligoRes, err = c.driver.Get(filterStr)
+	// Log request XML before sending
+	c.logRequestXML(ctx, req)
 
-	case "get-config":
-		// GetConfig method signature: GetConfig(source string, opts ...util.Option)
-		//
-		// Filter options are provided via driver/opoptions package:
-		//   - opoptions.WithFilter(content) sets the filter XML or XPath expression
-		//   - opoptions.WithFilterType(type) sets "subtree" or "xpath" (default is "subtree")
-		var opts []util.Option
-		if req.Filter.Content != "" {
-			// Add filter content
-			opts = append(opts, opoptions.WithFilter(req.Filter.Content))
+	// Dispatch operation to scrapligo driver
+	scrapligoRes, err := c.dispatchOperation(req)
 
-			// Set filter type if XPath (subtree is default)
-			if req.Filter.Type == filterTypeXPath {
-				opts = append(opts, opoptions.WithFilterType(filterTypeXPath))
-			}
-		}
-		scrapligoRes, err = c.driver.GetConfig(req.Target, opts...)
-
-	case "edit-config":
-		// EditConfig method signature: EditConfig(target, config string)
-		// If advanced edit-config options are set, build custom XML
-		if req.DefaultOperation != "" || req.TestOption != "" || req.ErrorOption != "" {
-			rpcXML := c.buildEditConfigXML(req)
-			scrapligoRes, err = c.driver.RPC(opoptions.WithFilter(rpcXML))
-		} else {
-			// For standard edit-config, ensure config has <config> wrapper
-			// scrapligo's EditConfig expects the caller to provide the config element
-			configContent := req.Config
-			result := xmldot.Get(req.Config, "config")
-			if !result.Exists() {
-				// Config doesn't have <config> wrapper, add it
-				configContent = "<config>" + req.Config + "</config>"
-			}
-			scrapligoRes, err = c.driver.EditConfig(req.Target, configContent)
-		}
-
-	case "copy-config":
-		// CopyConfig method signature: CopyConfig(source, target string)
-		scrapligoRes, err = c.driver.CopyConfig(req.Config, req.Target)
-
-	case "delete-config":
-		// DeleteConfig method signature: DeleteConfig(target string)
-		scrapligoRes, err = c.driver.DeleteConfig(req.Target)
-
-	case "lock":
-		// Lock method signature: Lock(target string)
-		scrapligoRes, err = c.driver.Lock(req.Target)
-
-	case "unlock":
-		// Unlock method signature: Unlock(target string)
-		scrapligoRes, err = c.driver.Unlock(req.Target)
-
-	case "commit":
-		// Commit method signature: Commit(opts ...util.Option)
-		// Support confirmed commit parameters via scrapligo options
-		var opts []util.Option
-		if req.ConfirmTimeout > 0 {
-			// Confirmed commit with timeout
-			opts = append(opts, opoptions.WithCommitConfirmed())
-			opts = append(opts, opoptions.WithCommitConfirmTimeout(uint(req.ConfirmTimeout)))
-		}
-		if req.PersistID != "" {
-			// Persist ID for commit operations
-			opts = append(opts, opoptions.WithCommitConfirmedPersistID(req.PersistID))
-		}
-		scrapligoRes, err = c.driver.Commit(opts...)
-
-	case "discard":
-		// Discard method signature: Discard()
-		scrapligoRes, err = c.driver.Discard()
-
-	case "validate":
-		// Validate method signature: Validate(target string)
-		scrapligoRes, err = c.driver.Validate(req.Target)
-
-	case "rpc":
-		// RPC method signature: RPC(opts ...util.Option)
-		// Pass the RPC XML content via WithFilter option
-		scrapligoRes, err = c.driver.RPC(opoptions.WithFilter(req.Config))
-
-	default:
-		return Res{}, fmt.Errorf("unsupported operation: %s", req.Operation)
-	}
-
+	// Handle operation error
 	if err != nil {
-		return Res{}, fmt.Errorf("operation %s failed: %w", req.Operation, err)
+		return Res{}, c.formatOperationError(req, err)
 	}
 
 	// Check for nil response
@@ -1473,59 +1408,166 @@ func (c *Client) executeRPC(ctx context.Context, req *Req) (Res, error) {
 		return Res{}, fmt.Errorf("operation %s: received nil response from driver", req.Operation)
 	}
 
-	// Log request XML content (Debug level only)
-	// Pre-check size and level to avoid expensive processing when not needed
-	if len(scrapligoRes.Input) > 0 {
-		// Pre-check size limit before string conversion (avoid allocation)
-		if len(scrapligoRes.Input) <= MaxXMLSizeForLogging {
-			// Validate UTF-8 encoding
-			if !utf8.Valid(scrapligoRes.Input) {
-				c.logger.Warn(ctx, "Invalid UTF-8 in NETCONF request XML",
-					"operation", req.Operation,
-					"size", len(scrapligoRes.Input))
-			} else {
-				requestXML := c.prepareXMLForLogging(string(scrapligoRes.Input))
-				c.logger.Debug(ctx, "NETCONF RPC request XML",
-					"operation", req.Operation,
-					"xml", requestXML)
-			}
-		} else {
-			// Log truncation message only (cheap operation)
-			c.logger.Debug(ctx, "NETCONF RPC request XML (truncated)",
-				"operation", req.Operation,
-				"size", len(scrapligoRes.Input),
-				"limit", MaxXMLSizeForLogging,
-				"xml", "[XML TOO LARGE FOR LOGGING]")
-		}
-	}
-
-	// Log response XML content (Debug level only)
-	if scrapligoRes.Result != "" {
-		// Pre-check size limit before processing
-		if len(scrapligoRes.Result) <= MaxXMLSizeForLogging {
-			// Validate UTF-8 encoding
-			if !utf8.ValidString(scrapligoRes.Result) {
-				c.logger.Warn(ctx, "Invalid UTF-8 in NETCONF response XML",
-					"operation", req.Operation,
-					"size", len(scrapligoRes.Result))
-			} else {
-				responseXML := c.prepareXMLForLogging(scrapligoRes.Result)
-				c.logger.Debug(ctx, "NETCONF RPC response XML",
-					"operation", req.Operation,
-					"xml", responseXML)
-			}
-		} else {
-			// Log truncation message only (cheap operation)
-			c.logger.Debug(ctx, "NETCONF RPC response XML (truncated)",
-				"operation", req.Operation,
-				"size", len(scrapligoRes.Result),
-				"limit", MaxXMLSizeForLogging,
-				"xml", "[XML TOO LARGE FOR LOGGING]")
-		}
-	}
+	// Log response XML
+	c.logResponseXML(ctx, req.Operation, scrapligoRes.Result)
 
 	// Parse response XML
 	return c.parseResponse(scrapligoRes)
+}
+
+// getRequestXMLForLogging determines what XML content to log based on operation type.
+func (c *Client) getRequestXMLForLogging(req *Req) string {
+	switch req.Operation {
+	case opEditConfig:
+		// For edit-config, ensure <config> wrapper is present (matching what will be sent)
+		if !xmldot.Get(req.Config, "config").Exists() {
+			return "<config>" + req.Config + "</config>"
+		}
+		return req.Config
+	case opGetConfig, opGet:
+		return req.Filter.Content
+	case opLock, opUnlock, opCommit, opDiscard, opValidate:
+		return "" // Simple operations have no XML content
+	default:
+		return req.Config // For other operations (rpc, copy-config, etc.)
+	}
+}
+
+// logRequestXML logs the request XML content if present.
+func (c *Client) logRequestXML(ctx context.Context, req *Req) {
+	xmlToLog := c.getRequestXMLForLogging(req)
+	if xmlToLog == "" {
+		return
+	}
+
+	if len(xmlToLog) > MaxXMLSizeForLogging {
+		c.logger.Debug(ctx, "NETCONF RPC request XML (truncated)",
+			"operation", req.Operation,
+			"size", len(xmlToLog),
+			"limit", MaxXMLSizeForLogging,
+			"xml", "[XML TOO LARGE FOR LOGGING]")
+		return
+	}
+
+	if !utf8.ValidString(xmlToLog) {
+		c.logger.Warn(ctx, "Invalid UTF-8 in NETCONF request XML",
+			"operation", req.Operation,
+			"size", len(xmlToLog))
+		return
+	}
+
+	requestXML := c.prepareXMLForLogging(xmlToLog)
+	c.logger.Debug(ctx, "NETCONF RPC request XML",
+		"operation", req.Operation,
+		"xml", requestXML)
+}
+
+// logResponseXML logs the response XML content.
+func (c *Client) logResponseXML(ctx context.Context, operation string, result string) {
+	if result == "" {
+		return
+	}
+
+	if len(result) > MaxXMLSizeForLogging {
+		c.logger.Debug(ctx, "NETCONF RPC response XML (truncated)",
+			"operation", operation,
+			"size", len(result),
+			"limit", MaxXMLSizeForLogging,
+			"xml", "[XML TOO LARGE FOR LOGGING]")
+		return
+	}
+
+	if !utf8.ValidString(result) {
+		c.logger.Warn(ctx, "Invalid UTF-8 in NETCONF response XML",
+			"operation", operation,
+			"size", len(result))
+		return
+	}
+
+	responseXML := c.prepareXMLForLogging(result)
+	c.logger.Debug(ctx, "NETCONF RPC response XML",
+		"operation", operation,
+		"xml", responseXML)
+}
+
+// formatOperationError formats an operation error with context.
+func (c *Client) formatOperationError(req *Req, err error) error {
+	if req.Operation == opEditConfig {
+		return fmt.Errorf("operation %s failed (target=%s, configSize=%d): %w",
+			req.Operation, req.Target, len(req.Config), err)
+	}
+	return fmt.Errorf("operation %s failed (target=%s): %w", req.Operation, req.Target, err)
+}
+
+// dispatchOperation dispatches the operation to the appropriate scrapligo driver method.
+func (c *Client) dispatchOperation(req *Req) (*response.NetconfResponse, error) {
+	switch req.Operation {
+	case opGet:
+		return c.driver.Get(req.Filter.Content)
+	case opGetConfig:
+		return c.executeGetConfig(req)
+	case opEditConfig:
+		return c.executeEditConfig(req)
+	case opCopyConfig:
+		return c.driver.CopyConfig(req.Config, req.Target)
+	case opDeleteConfig:
+		return c.driver.DeleteConfig(req.Target)
+	case opLock:
+		return c.driver.Lock(req.Target)
+	case opUnlock:
+		return c.driver.Unlock(req.Target)
+	case opCommit:
+		return c.executeCommit(req)
+	case opDiscard:
+		return c.driver.Discard()
+	case opValidate:
+		return c.driver.Validate(req.Target)
+	case opRPC:
+		return c.driver.RPC(opoptions.WithFilter(req.Config))
+	default:
+		return nil, fmt.Errorf("unsupported operation: %s", req.Operation)
+	}
+}
+
+// executeGetConfig executes a get-config operation with filter options.
+func (c *Client) executeGetConfig(req *Req) (*response.NetconfResponse, error) {
+	var opts []util.Option
+	if req.Filter.Content != "" {
+		opts = append(opts, opoptions.WithFilter(req.Filter.Content))
+		if req.Filter.Type == filterTypeXPath {
+			opts = append(opts, opoptions.WithFilterType(filterTypeXPath))
+		}
+	}
+	return c.driver.GetConfig(req.Target, opts...)
+}
+
+// executeEditConfig executes an edit-config operation.
+func (c *Client) executeEditConfig(req *Req) (*response.NetconfResponse, error) {
+	// If advanced edit-config options are set, build custom XML
+	if req.DefaultOperation != "" || req.TestOption != "" || req.ErrorOption != "" {
+		rpcXML := c.buildEditConfigXML(req)
+		return c.driver.RPC(opoptions.WithFilter(rpcXML))
+	}
+
+	// For standard edit-config, ensure config has <config> wrapper
+	configContent := req.Config
+	if !xmldot.Get(req.Config, "config").Exists() {
+		configContent = "<config>" + req.Config + "</config>"
+	}
+	return c.driver.EditConfig(req.Target, configContent)
+}
+
+// executeCommit executes a commit operation with optional confirmed commit.
+func (c *Client) executeCommit(req *Req) (*response.NetconfResponse, error) {
+	var opts []util.Option
+	if req.ConfirmTimeout > 0 {
+		opts = append(opts, opoptions.WithCommitConfirmed())
+		opts = append(opts, opoptions.WithCommitConfirmTimeout(uint(req.ConfirmTimeout)))
+	}
+	if req.PersistID != "" {
+		opts = append(opts, opoptions.WithCommitConfirmedPersistID(req.PersistID))
+	}
+	return c.driver.Commit(opts...)
 }
 
 // parseResponse parses a NETCONF response from scrapligo

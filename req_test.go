@@ -8,10 +8,13 @@ import (
 	"testing"
 )
 
-// Test constants for filter types (GOCONST)
+// Test constants for filter types and operations (GOCONST)
 const (
 	testFilterSubtree = "subtree"
 	testFilterXPath   = "xpath"
+	testOpGet         = "get"
+	testOpEditConfig  = "edit-config"
+	testOpCommit      = "commit"
 )
 
 // TestSubtreeFilter tests the SubtreeFilter constructor
@@ -172,14 +175,14 @@ func TestFilterStructure(t *testing.T) {
 func TestReqStructure(t *testing.T) {
 	t.Run("get request", func(t *testing.T) {
 		req := Req{
-			Operation: "get",
+			Operation: testOpGet,
 			Filter: Filter{
 				Type:    testFilterSubtree,
 				Content: "<interfaces/>",
 			},
 		}
 
-		if req.Operation != "get" {
+		if req.Operation != testOpGet {
 			t.Errorf("expected Operation 'get', got %q", req.Operation)
 		}
 		if req.Filter.Type != testFilterSubtree {
@@ -189,13 +192,13 @@ func TestReqStructure(t *testing.T) {
 
 	t.Run("edit-config request", func(t *testing.T) {
 		req := Req{
-			Operation:        "edit-config",
+			Operation:        testOpEditConfig,
 			Target:           "candidate",
 			Config:           "<config><hostname>router1</hostname></config>",
 			DefaultOperation: "merge",
 		}
 
-		if req.Operation != "edit-config" {
+		if req.Operation != testOpEditConfig {
 			t.Errorf("expected Operation 'edit-config', got %q", req.Operation)
 		}
 		if req.Target != "candidate" {
@@ -208,12 +211,12 @@ func TestReqStructure(t *testing.T) {
 
 	t.Run("commit request with confirmed", func(t *testing.T) {
 		req := Req{
-			Operation:      "commit",
+			Operation:      testOpCommit,
 			ConfirmTimeout: 60,
 			PersistID:      "test-123",
 		}
 
-		if req.Operation != "commit" {
+		if req.Operation != testOpCommit {
 			t.Errorf("expected Operation 'commit', got %q", req.Operation)
 		}
 		if req.ConfirmTimeout != 60 {
