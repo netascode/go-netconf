@@ -1381,12 +1381,6 @@ func (c *Client) executeRPC(ctx context.Context, req *Req) (Res, error) {
 		return Res{}, fmt.Errorf("operation %s failed: driver is nil (connection closed)", req.Operation)
 	}
 
-	// DIAGNOSTIC: Log session state before operation to help diagnose Terraform plugin issues
-	c.logger.Debug(ctx, "NETCONF RPC request",
-		"operation", req.Operation,
-		"target", req.Target,
-		"sessionID", c.SessionID())
-
 	// Log request XML BEFORE sending to catch operations that timeout at transport layer
 	// Determine what XML content to log based on operation type
 	var xmlToLog string
@@ -1405,10 +1399,7 @@ func (c *Client) executeRPC(ctx context.Context, req *Req) (Res, error) {
 	case "get-config", "get":
 		xmlToLog = req.Filter.Content
 	case "lock", "unlock", "commit", "discard", "validate":
-		// Simple operations have no XML content, just log metadata
-		c.logger.Debug(ctx, "NETCONF RPC request",
-			"operation", req.Operation,
-			"target", req.Target)
+		// Simple operations have no XML content (already logged at line 1385)
 	default:
 		// For other operations (rpc, copy-config, etc.)
 		xmlToLog = req.Config
