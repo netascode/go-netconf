@@ -20,6 +20,7 @@ import (
 	"github.com/scrapli/scrapligo/driver/opoptions"
 	"github.com/scrapli/scrapligo/driver/options"
 	"github.com/scrapli/scrapligo/response"
+	"github.com/scrapli/scrapligo/transport"
 	"github.com/scrapli/scrapligo/util"
 )
 
@@ -214,6 +215,7 @@ func NewClient(host string, opts ...func(*Client)) (*Client, error) {
 		options.WithPort(client.Port),
 		options.WithTimeoutSocket(client.ConnectTimeout),
 		options.WithTimeoutOps(client.OperationTimeout),
+		options.WithTransportType(transport.StandardTransport),
 	}
 
 	// Only disable host key verification if explicitly requested
