@@ -186,6 +186,38 @@ type Client struct {
 //	defer client.Close()
 //
 // Returns a configured Client or an error if connection fails.
+
+// buildScrapligoOptions creates scrapligo driver options from client configuration.
+//
+// This helper method ensures consistent driver configuration between initial
+// connection (NewClient) and reconnection (reconnect). It builds the options
+// list based on the client's current configuration settings.
+//
+// Returns a slice of scrapligo options ready to pass to netconf.NewDriver().
+func (c *Client) buildScrapligoOptions() []util.Option {
+	scrapliOpts := []util.Option{
+		options.WithAuthUsername(c.username),
+		options.WithAuthPassword(c.password),
+		options.WithPort(c.Port),
+		options.WithTimeoutSocket(c.ConnectTimeout),
+		options.WithTimeoutOps(c.OperationTimeout),
+		options.WithTransportType(transport.StandardTransport),
+	}
+
+	// Only disable host key verification if explicitly requested
+	if c.InsecureSkipVerify {
+		scrapliOpts = append(scrapliOpts, options.WithAuthNoStrictKey())
+	}
+
+	// Add SSH key authentication if provided
+	if c.SSHKeyPath != "" {
+		// scrapligo expects key path and passphrase
+		scrapliOpts = append(scrapliOpts, options.WithAuthPrivateKey(c.SSHKeyPath, ""))
+	}
+
+	return scrapliOpts
+}
+
 func NewClient(host string, opts ...func(*Client)) (*Client, error) {
 	// Create client with default values
 	client := &Client{
@@ -208,26 +240,8 @@ func NewClient(host string, opts ...func(*Client)) (*Client, error) {
 		opt(client)
 	}
 
-	// Build scrapligo options
-	scrapliOpts := []util.Option{
-		options.WithAuthUsername(client.username),
-		options.WithAuthPassword(client.password),
-		options.WithPort(client.Port),
-		options.WithTimeoutSocket(client.ConnectTimeout),
-		options.WithTimeoutOps(client.OperationTimeout),
-		options.WithTransportType(transport.StandardTransport),
-	}
-
-	// Only disable host key verification if explicitly requested
-	if client.InsecureSkipVerify {
-		scrapliOpts = append(scrapliOpts, options.WithAuthNoStrictKey())
-	}
-
-	// Add SSH key authentication if provided
-	if client.SSHKeyPath != "" {
-		// scrapligo expects key path and passphrase
-		scrapliOpts = append(scrapliOpts, options.WithAuthPrivateKey(client.SSHKeyPath, ""))
-	}
+	// Build scrapligo options using helper method
+	scrapliOpts := client.buildScrapligoOptions()
 
 	// Create NETCONF driver
 	driver, err := netconf.NewDriver(host, scrapliOpts...)
@@ -299,6 +313,42 @@ func (c *Client) Close() error {
 		"sessionID", c.sessionID)
 
 	return nil
+}
+
+// Reopen reopens a closed NETCONF connection
+//
+// This method allows you to reestablish a connection after calling Close().
+// It creates a new underlying transport connection and performs capability
+// exchange, effectively resetting the session state.
+//
+// After a successful Reopen(), the client can be used normally for NETCONF
+// operations. The session ID will be different from the previous connection.
+//
+// Returns an error if reconnection fails.
+func (c *Client) Reopen() error {
+	return c.reconnect()
+}
+
+// IsClosed returns true if the connection is closed or was never opened
+//
+// This method checks the internal driver state to determine if the connection
+// is active. A closed connection cannot be used for NETCONF operations until
+// Reopen() is called.
+//
+// Example:
+//
+//	if client.IsClosed() {
+//	    if err := client.Reopen(); err != nil {
+//	        log.Fatal(err)
+//	    }
+//	}
+//	res, err := client.GetConfig(ctx, "running", filter)
+//
+// Returns true if the connection is closed, false if open.
+func (c *Client) IsClosed() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.driver == nil
 }
 
 // Get retrieves configuration and state data from the device
@@ -1089,16 +1139,16 @@ func (c *Client) waitForLockRelease(ctx context.Context, target string) error {
 // reconnect attempts to reconnect the NETCONF session
 //
 // This method closes the existing connection and establishes a new one,
-// re-negotiating capabilities. Used when transport errors are detected.
+// re-negotiating capabilities. Used internally when transport errors are
+// detected during retry logic, and externally via the public Reopen() method.
 //
 // Returns an error if reconnection fails.
 func (c *Client) reconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.logger.Warn(context.Background(), "NETCONF reconnecting",
-		"host", c.Host,
-		"reason", "transport error")
+	c.logger.Info(context.Background(), "NETCONF reconnecting",
+		"host", c.Host)
 
 	// Close existing connection (ignore errors - connection may already be broken)
 	if c.driver != nil {
@@ -1106,22 +1156,8 @@ func (c *Client) reconnect() error {
 		c.driver = nil
 	}
 
-	// Build scrapligo options (same as NewClient)
-	scrapliOpts := []util.Option{
-		options.WithAuthUsername(c.username),
-		options.WithAuthPassword(c.password),
-		options.WithPort(c.Port),
-		options.WithTimeoutSocket(c.ConnectTimeout),
-		options.WithTimeoutOps(c.OperationTimeout),
-	}
-
-	if c.InsecureSkipVerify {
-		scrapliOpts = append(scrapliOpts, options.WithAuthNoStrictKey())
-	}
-
-	if c.SSHKeyPath != "" {
-		scrapliOpts = append(scrapliOpts, options.WithAuthPrivateKey(c.SSHKeyPath, ""))
-	}
+	// Build scrapligo options using helper method (ensures consistency with NewClient)
+	scrapliOpts := c.buildScrapligoOptions()
 
 	// Create new driver
 	driver, err := netconf.NewDriver(c.Host, scrapliOpts...)

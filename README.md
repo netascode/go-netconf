@@ -165,6 +165,35 @@ client, err := netconf.NewClient(
 )
 ```
 
+### Connection Lifecycle Management
+
+The connection is opened automatically when creating a client with `NewClient()`. For use cases that require explicit connection management, use `Reopen()` to reestablish closed connections and `IsClosed()` to check connection state:
+
+```go
+// Create client (connection opens automatically)
+client, err := netconf.NewClient(
+    "192.168.1.1",
+    netconf.Username("admin"),
+    netconf.Password("secret"),
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Use client for first operation
+res, err := client.GetConfig(ctx, "running", filter)
+client.Close()  // Close after operation
+
+// Later - check and reopen if needed
+if client.IsClosed() {
+    if err := client.Reopen(); err != nil {
+        log.Fatal(err)
+    }
+}
+res, err = client.EditConfig(ctx, "candidate", config)
+client.Close()  // Close after operation
+```
+
 ### Capability Checking
 
 ```go

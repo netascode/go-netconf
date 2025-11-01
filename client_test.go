@@ -139,6 +139,189 @@ func TestClientClose(t *testing.T) {
 	})
 }
 
+func TestClientReopen(t *testing.T) {
+	t.Run("reopen without valid connection should fail", func(t *testing.T) {
+		// Create client with invalid host to ensure connection fails
+		client := &Client{
+			Host:              "invalid-host-that-does-not-exist.local",
+			Port:              830,
+			username:          "test",
+			password:          "test",
+			ConnectTimeout:    1 * time.Second,
+			OperationTimeout:  1 * time.Second,
+			logger:            &NoOpLogger{},
+			prettyPrintLogs:   false,
+			redactionPatterns: defaultRedactionPatterns,
+		}
+
+		// Attempt to reopen (should fail because host doesn't exist)
+		err := client.Reopen()
+		if err == nil {
+			t.Error("Reopen() should fail with invalid host")
+		}
+	})
+
+	t.Run("reopen preserves client configuration", func(t *testing.T) {
+		// Create client with specific configuration
+		client := &Client{
+			Host:               "test-host",
+			Port:               2222,
+			username:           "testuser",
+			password:           "testpass",
+			SSHKeyPath:         "/path/to/key",
+			InsecureSkipVerify: true,
+			MaxRetries:         5,
+			BackoffMinDelay:    2 * time.Second,
+			BackoffMaxDelay:    120 * time.Second,
+			BackoffDelayFactor: 3.0,
+			LockReleaseTimeout: 240 * time.Second,
+			ConnectTimeout:     45 * time.Second,
+			OperationTimeout:   90 * time.Second,
+			logger:             &NoOpLogger{},
+			prettyPrintLogs:    true,
+			redactionPatterns:  defaultRedactionPatterns,
+		}
+
+		// Note: This test verifies configuration is preserved during reconnect attempt
+		// The connection will fail (no server), but we verify the client state remains intact
+		originalHost := client.Host
+		originalPort := client.Port
+		originalUser := client.username
+		originalPass := client.password
+		originalSSHKey := client.SSHKeyPath
+		originalInsecure := client.InsecureSkipVerify
+		originalMaxRetries := client.MaxRetries
+		originalConnectTimeout := client.ConnectTimeout
+
+		// Attempt reopen (will fail, but shouldn't corrupt state)
+		_ = client.Reopen() //nolint:errcheck // Test expects failure, checking state preservation only
+
+		// Verify configuration preserved
+		if client.Host != originalHost {
+			t.Errorf("Host changed after Reopen: got %s, want %s", client.Host, originalHost)
+		}
+		if client.Port != originalPort {
+			t.Errorf("Port changed after Reopen: got %d, want %d", client.Port, originalPort)
+		}
+		if client.username != originalUser {
+			t.Errorf("Username changed after Reopen: got %s, want %s", client.username, originalUser)
+		}
+		if client.password != originalPass {
+			t.Errorf("Password changed after Reopen: got %s, want %s", client.password, originalPass)
+		}
+		if client.SSHKeyPath != originalSSHKey {
+			t.Errorf("SSHKeyPath changed after Reopen: got %s, want %s", client.SSHKeyPath, originalSSHKey)
+		}
+		if client.InsecureSkipVerify != originalInsecure {
+			t.Errorf("InsecureSkipVerify changed after Reopen: got %v, want %v", client.InsecureSkipVerify, originalInsecure)
+		}
+		if client.MaxRetries != originalMaxRetries {
+			t.Errorf("MaxRetries changed after Reopen: got %d, want %d", client.MaxRetries, originalMaxRetries)
+		}
+		if client.ConnectTimeout != originalConnectTimeout {
+			t.Errorf("ConnectTimeout changed after Reopen: got %v, want %v", client.ConnectTimeout, originalConnectTimeout)
+		}
+	})
+
+	t.Run("reopen after close should clear old driver", func(t *testing.T) {
+		client := &Client{
+			Host:              "test-host",
+			Port:              830,
+			username:          "test",
+			password:          "test",
+			driver:            nil, // Simulate closed state
+			ConnectTimeout:    1 * time.Second,
+			OperationTimeout:  1 * time.Second,
+			logger:            &NoOpLogger{},
+			prettyPrintLogs:   false,
+			redactionPatterns: defaultRedactionPatterns,
+		}
+
+		// Driver should be nil before reopen
+		if client.driver != nil {
+			t.Error("Driver should be nil before Reopen")
+		}
+
+		// Attempt reopen (will fail but shouldn't panic)
+		_ = client.Reopen() //nolint:errcheck // Test expects failure, checking panic prevention only
+
+		// Driver remains nil after failed reconnect
+		if client.driver != nil {
+			t.Error("Driver should remain nil after failed Reopen")
+		}
+	})
+}
+
+func TestClientIsClosed(t *testing.T) {
+	t.Run("client with nil driver is closed", func(t *testing.T) {
+		client := &Client{
+			driver: nil,
+		}
+
+		if !client.IsClosed() {
+			t.Error("IsClosed() should return true when driver is nil")
+		}
+	})
+
+	t.Run("newly created client without connection is closed", func(t *testing.T) {
+		// Create client structure without calling NewClient (which opens connection)
+		client := &Client{
+			Host:     "test-host",
+			Port:     830,
+			username: "test",
+			password: "test",
+			driver:   nil, // No connection established
+		}
+
+		if !client.IsClosed() {
+			t.Error("IsClosed() should return true for client without connection")
+		}
+	})
+
+	t.Run("closed client after Close() is detected as closed", func(t *testing.T) {
+		client := &Client{
+			driver: nil, // Simulate already closed
+		}
+
+		// Close should be idempotent
+		err := client.Close()
+		if err != nil {
+			t.Errorf("Close() should not error on already closed client: %v", err)
+		}
+
+		if !client.IsClosed() {
+			t.Error("IsClosed() should return true after Close()")
+		}
+	})
+
+	t.Run("IsClosed is thread-safe", func(t *testing.T) {
+		client := &Client{
+			driver: nil,
+		}
+
+		// Run concurrent IsClosed checks
+		done := make(chan bool)
+		for i := 0; i < 10; i++ {
+			go func() {
+				for j := 0; j < 100; j++ {
+					_ = client.IsClosed()
+				}
+				done <- true
+			}()
+		}
+
+		// Wait for all goroutines
+		for i := 0; i < 10; i++ {
+			<-done
+		}
+
+		// Should still be closed
+		if !client.IsClosed() {
+			t.Error("IsClosed() should remain true after concurrent access")
+		}
+	})
+}
+
 // Note: Full integration tests with actual NETCONF connections would require
 // a real NETCONF server or mock. These tests focus on unit testing the
 // structure and basic functionality.
