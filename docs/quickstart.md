@@ -32,7 +32,7 @@ import (
 )
 
 func main() {
-    // Create a NETCONF client
+    // Create a NETCONF client (connection established lazily)
     client, err := netconf.NewClient(
         "192.168.1.1",  // Device hostname or IP
         netconf.Username("admin"),
@@ -40,11 +40,16 @@ func main() {
         netconf.Port(830),  // Default NETCONF over SSH port
     )
     if err != nil {
-        log.Fatalf("Failed to connect: %v", err)
+        log.Fatalf("Failed to create client: %v", err)
     }
     defer client.Close()
 
-    // Print session information
+    // Open connection to retrieve capabilities
+    if err := client.Open(); err != nil {
+        log.Fatalf("Failed to connect: %v", err)
+    }
+
+    // Print session information (available after connection)
     fmt.Printf("Connected! Session ID: %s\n", client.SessionID())
 
     // List server capabilities
@@ -71,7 +76,7 @@ import (
 )
 
 func main() {
-    // Connect to device
+    // Create client (connection established lazily on first operation)
     client, err := netconf.NewClient(
         "192.168.1.1",
         netconf.Username("admin"),
@@ -84,7 +89,7 @@ func main() {
 
     ctx := context.Background()
 
-    // Get configuration with a filter
+    // Get configuration with a filter (connection opens automatically)
     filter := netconf.SubtreeFilter("<interfaces/>")
     res, err := client.GetConfig(ctx, "running", filter)
     if err != nil {

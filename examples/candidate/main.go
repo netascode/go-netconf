@@ -32,7 +32,7 @@ func main() {
 	username := getEnv("NETCONF_USERNAME", "admin")
 	password := getEnv("NETCONF_PASSWORD", "secret")
 
-	// Create client
+	// Create client (connection established lazily on first operation)
 	client, err := netconf.NewClient(
 		host,
 		netconf.Username(username),
@@ -43,6 +43,11 @@ func main() {
 		log.Fatalf("NewClient failed: %v", err)
 	}
 	defer client.Close()
+
+	// Open connection explicitly to check capabilities
+	if err := client.Open(); err != nil {
+		log.Fatalf("Failed to connect: %v", err)
+	}
 
 	// Check capability
 	if !client.ServerHasCapability("urn:ietf:params:netconf:capability:candidate:1.0") {

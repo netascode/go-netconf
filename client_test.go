@@ -139,8 +139,8 @@ func TestClientClose(t *testing.T) {
 	})
 }
 
-func TestClientReopen(t *testing.T) {
-	t.Run("reopen without valid connection should fail", func(t *testing.T) {
+func TestClientOpen(t *testing.T) {
+	t.Run("open without valid connection should fail", func(t *testing.T) {
 		// Create client with invalid host to ensure connection fails
 		client := &Client{
 			Host:              "invalid-host-that-does-not-exist.local",
@@ -154,14 +154,14 @@ func TestClientReopen(t *testing.T) {
 			redactionPatterns: defaultRedactionPatterns,
 		}
 
-		// Attempt to reopen (should fail because host doesn't exist)
-		err := client.Reopen()
+		// Attempt to open (should fail because host doesn't exist)
+		err := client.Open()
 		if err == nil {
-			t.Error("Reopen() should fail with invalid host")
+			t.Error("Open() should fail with invalid host")
 		}
 	})
 
-	t.Run("reopen preserves client configuration", func(t *testing.T) {
+	t.Run("open preserves client configuration", func(t *testing.T) {
 		// Create client with specific configuration
 		client := &Client{
 			Host:               "test-host",
@@ -182,7 +182,7 @@ func TestClientReopen(t *testing.T) {
 			redactionPatterns:  defaultRedactionPatterns,
 		}
 
-		// Note: This test verifies configuration is preserved during reconnect attempt
+		// Note: This test verifies configuration is preserved during connect attempt
 		// The connection will fail (no server), but we verify the client state remains intact
 		originalHost := client.Host
 		originalPort := client.Port
@@ -193,37 +193,37 @@ func TestClientReopen(t *testing.T) {
 		originalMaxRetries := client.MaxRetries
 		originalConnectTimeout := client.ConnectTimeout
 
-		// Attempt reopen (will fail, but shouldn't corrupt state)
-		_ = client.Reopen() //nolint:errcheck // Test expects failure, checking state preservation only
+		// Attempt open (will fail, but shouldn't corrupt state)
+		_ = client.Open() //nolint:errcheck // Test expects failure, checking state preservation only
 
 		// Verify configuration preserved
 		if client.Host != originalHost {
-			t.Errorf("Host changed after Reopen: got %s, want %s", client.Host, originalHost)
+			t.Errorf("Host changed after Open: got %s, want %s", client.Host, originalHost)
 		}
 		if client.Port != originalPort {
-			t.Errorf("Port changed after Reopen: got %d, want %d", client.Port, originalPort)
+			t.Errorf("Port changed after Open: got %d, want %d", client.Port, originalPort)
 		}
 		if client.username != originalUser {
-			t.Errorf("Username changed after Reopen: got %s, want %s", client.username, originalUser)
+			t.Errorf("Username changed after Open: got %s, want %s", client.username, originalUser)
 		}
 		if client.password != originalPass {
-			t.Errorf("Password changed after Reopen: got %s, want %s", client.password, originalPass)
+			t.Errorf("Password changed after Open: got %s, want %s", client.password, originalPass)
 		}
 		if client.SSHKeyPath != originalSSHKey {
-			t.Errorf("SSHKeyPath changed after Reopen: got %s, want %s", client.SSHKeyPath, originalSSHKey)
+			t.Errorf("SSHKeyPath changed after Open: got %s, want %s", client.SSHKeyPath, originalSSHKey)
 		}
 		if client.InsecureSkipVerify != originalInsecure {
-			t.Errorf("InsecureSkipVerify changed after Reopen: got %v, want %v", client.InsecureSkipVerify, originalInsecure)
+			t.Errorf("InsecureSkipVerify changed after Open: got %v, want %v", client.InsecureSkipVerify, originalInsecure)
 		}
 		if client.MaxRetries != originalMaxRetries {
-			t.Errorf("MaxRetries changed after Reopen: got %d, want %d", client.MaxRetries, originalMaxRetries)
+			t.Errorf("MaxRetries changed after Open: got %d, want %d", client.MaxRetries, originalMaxRetries)
 		}
 		if client.ConnectTimeout != originalConnectTimeout {
-			t.Errorf("ConnectTimeout changed after Reopen: got %v, want %v", client.ConnectTimeout, originalConnectTimeout)
+			t.Errorf("ConnectTimeout changed after Open: got %v, want %v", client.ConnectTimeout, originalConnectTimeout)
 		}
 	})
 
-	t.Run("reopen after close should clear old driver", func(t *testing.T) {
+	t.Run("open after close should reconnect", func(t *testing.T) {
 		client := &Client{
 			Host:              "test-host",
 			Port:              830,
@@ -237,17 +237,17 @@ func TestClientReopen(t *testing.T) {
 			redactionPatterns: defaultRedactionPatterns,
 		}
 
-		// Driver should be nil before reopen
+		// Driver should be nil initially
 		if client.driver != nil {
-			t.Error("Driver should be nil before Reopen")
+			t.Error("Driver should be nil before Open")
 		}
 
-		// Attempt reopen (will fail but shouldn't panic)
-		_ = client.Reopen() //nolint:errcheck // Test expects failure, checking panic prevention only
+		// Attempt open (will fail but shouldn't panic)
+		_ = client.Open() //nolint:errcheck // Test expects failure, checking panic prevention only
 
-		// Driver remains nil after failed reconnect
+		// Driver remains nil after failed open
 		if client.driver != nil {
-			t.Error("Driver should remain nil after failed Reopen")
+			t.Error("Driver should remain nil after failed Open")
 		}
 	})
 }

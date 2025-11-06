@@ -37,9 +37,10 @@ func main() {
 		netconf.InsecureSkipHostKeyVerification(),
 	)
 	if err != nil {
-		log.Printf("Failed to connect (no logging): %v", err)
+		log.Printf("Failed to create client (no logging): %v", err)
 	} else {
-		fmt.Println("Connected successfully (logs are disabled by default)")
+		// Connection happens lazily on first operation
+		fmt.Println("Client created successfully (logs are disabled by default)")
 		client1.Close() //nolint:errcheck,gosec // Example code
 	}
 
@@ -54,16 +55,18 @@ func main() {
 		netconf.WithLogger(logger),
 	)
 	if err != nil {
-		log.Printf("Failed to connect (info logging): %v", err)
+		log.Printf("Failed to create client (info logging): %v", err)
 	} else {
-		fmt.Println("Connected - check logs above for connection info")
+		fmt.Println("Client created - connection opens on first operation")
 		defer client2.Close() //nolint:errcheck // Example code
 
-		// Perform a simple operation
+		// Perform a simple operation (connection opens automatically here)
 		ctx := context.Background()
 		_, err := client2.GetConfig(ctx, "running", netconf.NoFilter())
 		if err != nil {
 			log.Printf("GetConfig failed: %v", err)
+		} else {
+			fmt.Println("Operation complete - check logs above for connection and operation info")
 		}
 	}
 
@@ -79,17 +82,19 @@ func main() {
 		netconf.WithPrettyPrintLogs(false), // Disable XML formatting for performance
 	)
 	if err != nil {
-		log.Printf("Failed to connect (debug logging): %v", err)
+		log.Printf("Failed to create client (debug logging): %v", err)
 	} else {
-		fmt.Println("Connected - check logs above for detailed debug info")
+		fmt.Println("Client created - connection opens on first operation")
 		defer client3.Close() //nolint:errcheck // Example code
 
-		// Perform operations to see detailed logging
+		// Perform operations to see detailed logging (connection opens automatically)
 		ctx := context.Background()
 		filter := netconf.SubtreeFilter("<interfaces/>")
 		_, err := client3.GetConfig(ctx, "running", filter)
 		if err != nil {
 			log.Printf("GetConfig with filter failed: %v", err)
+		} else {
+			fmt.Println("Operation complete - check logs above for detailed debug info")
 		}
 	}
 
@@ -132,7 +137,7 @@ func main() {
 		netconf.WithLogger(redactionLogger),
 	)
 	if err != nil {
-		log.Printf("Failed to connect (redaction example): %v", err)
+		log.Printf("Failed to create client (redaction example): %v", err)
 	} else {
 		defer client5.Close() //nolint:errcheck // Example code
 

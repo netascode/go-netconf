@@ -167,11 +167,13 @@ type Client struct {
 
 // NewClient creates a new NETCONF client with the specified host and options
 //
-// The client establishes a connection to the NETCONF server and performs
-// capability exchange. Use functional options to configure authentication
-// and behavior.
+// The client does NOT connect immediately. Connection is established either:
+//   1. Automatically on first operation (lazy connect), or
+//   2. Explicitly via client.Open()
 //
-// Example:
+// Use functional options to configure authentication and behavior.
+//
+// Example (lazy connect):
 //
 //	client, err := netconf.NewClient(
 //	    "192.168.1.1",
@@ -185,7 +187,24 @@ type Client struct {
 //	}
 //	defer client.Close()
 //
-// Returns a configured Client or an error if connection fails.
+//	// Connection happens automatically on first operation
+//	res, err := client.GetConfig(ctx, "running", filter)
+//
+// Example (explicit connect):
+//
+//	client, err := netconf.NewClient("192.168.1.1", ...)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	// Explicit connection
+//	if err := client.Open(); err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer client.Close()
+//
+// Returns a configured Client. Connection errors are returned from Open()
+// or the first operation, not from NewClient().
 
 // buildScrapligoOptions creates scrapligo driver options from client configuration.
 //
@@ -240,49 +259,131 @@ func NewClient(host string, opts ...func(*Client)) (*Client, error) {
 		opt(client)
 	}
 
+	// Lazy connect: return without establishing connection
+	// Connection will be established on first operation or explicit Open() call
+	return client, nil
+}
+
+// connect establishes the NETCONF connection and performs capability exchange.
+// This method is called either explicitly via Open() or lazily via ensureConnected().
+//
+// PRECONDITION: Caller must hold c.mu.Lock() (write lock)
+//
+// Returns an error if connection fails.
+func (c *Client) connect() error {
 	// Build scrapligo options using helper method
-	scrapliOpts := client.buildScrapligoOptions()
+	scrapliOpts := c.buildScrapligoOptions()
 
 	// Create NETCONF driver
-	driver, err := netconf.NewDriver(host, scrapliOpts...)
+	driver, err := netconf.NewDriver(c.Host, scrapliOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create NETCONF driver: %w", err)
+		return fmt.Errorf("failed to create NETCONF driver: %w", err)
 	}
 
 	// Open connection and perform capability exchange
 	err = driver.Open()
 	if err != nil {
-		return nil, fmt.Errorf("failed to open NETCONF connection: %w", err)
+		return fmt.Errorf("failed to open NETCONF connection: %w", err)
 	}
 
 	// Store driver and capabilities
-	client.driver = driver
-	client.Capabilities = driver.ServerCapabilities()
+	c.driver = driver
+	c.Capabilities = driver.ServerCapabilities()
 
 	// Extract session information
-	client.sessionID = fmt.Sprintf("%d", driver.SessionID())
+	c.sessionID = fmt.Sprintf("%d", driver.SessionID())
 
 	// Extract server version from capabilities if available
-	for _, cap := range client.Capabilities {
+	for _, cap := range c.Capabilities {
 		// Look for base capability to determine version
 		if cap == netconfBase10URN ||
 			cap == "urn:ietf:params:netconf:base:1.1" {
-			client.serverVersion = driver.SelectedVersion
+			c.serverVersion = driver.SelectedVersion
 			break
 		}
 	}
 
 	// Log successful connection
-	client.logger.Info(context.Background(), "NETCONF connection established",
-		"host", client.Host,
-		"port", client.Port,
-		"sessionID", client.sessionID,
-		"version", client.serverVersion)
+	c.logger.Info(context.Background(), "NETCONF connection established",
+		"host", c.Host,
+		"port", c.Port,
+		"sessionID", c.sessionID,
+		"version", c.serverVersion)
 
-	client.logger.Debug(context.Background(), "NETCONF capabilities discovered",
-		"count", len(client.Capabilities))
+	c.logger.Debug(context.Background(), "NETCONF capabilities discovered",
+		"count", len(c.Capabilities))
 
-	return client, nil
+	return nil
+}
+
+// Open explicitly establishes the NETCONF connection
+//
+// This method connects to the server and performs capability exchange.
+// It can be called to pre-connect before operations, or connection will
+// happen automatically on first operation (lazy connect). Multiple calls
+// to Open() are safe - subsequent calls are no-ops if already connected.
+//
+// Example:
+//
+//	client, err := netconf.NewClient("192.168.1.1",
+//	    netconf.Username("admin"),
+//	    netconf.Password("secret"))
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	// Explicit connect
+//	if err := client.Open(); err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer client.Close()
+//
+// Returns an error if connection fails.
+func (c *Client) Open() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Already connected, no-op
+	if c.driver != nil {
+		return nil
+	}
+
+	return c.connect()
+}
+
+// ensureConnected ensures the client has an active connection.
+// If no connection exists, establishes connection automatically (lazy connect).
+//
+// This method uses a double-check locking pattern for thread safety:
+// 1. Fast path: Check with read lock (already connected)
+// 2. Slow path: Acquire write lock and connect
+//
+// PRECONDITION: Caller must NOT hold any locks
+//
+// Thread Safety: This method acquires and releases locks internally. Callers
+// must not hold locks when calling this method to avoid lock ordering violations.
+//
+// Returns an error if connection establishment fails.
+func (c *Client) ensureConnected() error {
+	// Fast path: check with read lock
+	c.mu.RLock()
+	if c.driver != nil {
+		c.mu.RUnlock()
+		return nil
+	}
+	c.mu.RUnlock()
+
+	// Slow path: establish connection with write lock
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Double-check: another goroutine may have connected between unlock and lock
+	if c.driver != nil {
+		return nil
+	}
+
+	// Establish connection
+	return c.connect()
 }
 
 // Close closes the NETCONF session and cleans up resources
@@ -315,36 +416,23 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// Reopen reopens a closed NETCONF connection
-//
-// This method allows you to reestablish a connection after calling Close().
-// It creates a new underlying transport connection and performs capability
-// exchange, effectively resetting the session state.
-//
-// After a successful Reopen(), the client can be used normally for NETCONF
-// operations. The session ID will be different from the previous connection.
-//
-// Returns an error if reconnection fails.
-func (c *Client) Reopen() error {
-	return c.reconnect()
-}
-
-// IsClosed returns true if the connection is closed or was never opened
+// IsClosed returns true if the connection is closed
 //
 // This method checks the internal driver state to determine if the connection
-// is active. A closed connection cannot be used for NETCONF operations until
-// Reopen() is called.
+// is active. Note that with lazy connect, a newly created client will return
+// false (not closed, just not connected yet). After calling Close(), this
+// returns true.
 //
 // Example:
 //
 //	if client.IsClosed() {
-//	    if err := client.Reopen(); err != nil {
+//	    if err := client.Open(); err != nil {
 //	        log.Fatal(err)
 //	    }
 //	}
 //	res, err := client.GetConfig(ctx, "running", filter)
 //
-// Returns true if the connection is closed, false if open.
+// Returns true if the connection was explicitly closed, false otherwise.
 func (c *Client) IsClosed() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -366,6 +454,11 @@ func (c *Client) IsClosed() bool {
 //	}
 //	ifName := res.Res.Get("data.interfaces.interface.name").String()
 func (c *Client) Get(ctx context.Context, filter Filter, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	// Acquire read lock before accessing driver
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -395,6 +488,11 @@ func (c *Client) Get(ctx context.Context, filter Filter, mods ...func(*Req)) (Re
 //	filter := netconf.SubtreeFilter("<interfaces/>")
 //	res, err := client.GetConfig(ctx, "running", filter)
 func (c *Client) GetConfig(ctx context.Context, source string, filter Filter, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	// Acquire read lock before accessing driver
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -429,6 +527,11 @@ func (c *Client) GetConfig(ctx context.Context, source string, filter Filter, mo
 //	res, err := client.EditConfig(ctx, "candidate", config,
 //	    netconf.DefaultOperation("merge"))
 func (c *Client) EditConfig(ctx context.Context, target, config string, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -457,6 +560,11 @@ func (c *Client) EditConfig(ctx context.Context, target, config string, mods ...
 //	ctx := context.Background()
 //	res, err := client.CopyConfig(ctx, "running", "startup")
 func (c *Client) CopyConfig(ctx context.Context, source, target string, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -487,6 +595,11 @@ func (c *Client) CopyConfig(ctx context.Context, source, target string, mods ...
 //	ctx := context.Background()
 //	res, err := client.DeleteConfig(ctx, "startup")
 func (c *Client) DeleteConfig(ctx context.Context, target string, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -535,6 +648,11 @@ func (c *Client) DeleteConfig(ctx context.Context, target string, mods ...func(*
 //	client.EditConfig(ctx, "candidate", config)
 //	client.Commit(ctx)
 func (c *Client) Lock(ctx context.Context, target string, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	// Acquire write lock since this modifies device state
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -567,6 +685,11 @@ func (c *Client) Lock(ctx context.Context, target string, mods ...func(*Req)) (R
 //	}
 //	defer client.Unlock(ctx, "candidate")  // Proper defer pattern
 func (c *Client) Unlock(ctx context.Context, target string, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	// Acquire write lock since this modifies device state
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -626,6 +749,11 @@ func (c *Client) Unlock(ctx context.Context, target string, mods ...func(*Req)) 
 //	    log.Fatal(err)
 //	}
 func (c *Client) Commit(ctx context.Context, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -652,6 +780,11 @@ func (c *Client) Commit(ctx context.Context, mods ...func(*Req)) (Res, error) {
 //	ctx := context.Background()
 //	res, err := client.Discard(ctx)
 func (c *Client) Discard(ctx context.Context, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -679,6 +812,11 @@ func (c *Client) Discard(ctx context.Context, mods ...func(*Req)) (Res, error) {
 //	ctx := context.Background()
 //	res, err := client.Validate(ctx, "candidate")
 func (c *Client) Validate(ctx context.Context, source string, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	// Acquire read lock - validation is read-only and doesn't modify
 	// datastore state, so concurrent validations are safe
 	c.mu.RLock()
@@ -722,6 +860,11 @@ func (c *Client) Validate(ctx context.Context, source string, mods ...func(*Req)
 //	rpc := `<get-system-info xmlns="http://cisco.com/ns/yang/Cisco-IOS-XR-shellutil-oper"/>`
 //	res, err := client.RPC(ctx, rpc)
 func (c *Client) RPC(ctx context.Context, rpcXML string, mods ...func(*Req)) (Res, error) {
+	// Ensure connection exists (lazy connect if needed)
+	if err := c.ensureConnected(); err != nil {
+		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	// Acquire write lock since custom RPCs may modify state
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -743,7 +886,8 @@ func (c *Client) RPC(ctx context.Context, rpcXML string, mods ...func(*Req)) (Re
 
 // ServerCapabilities returns the list of capabilities supported by the server
 //
-// Returns a copy of the capabilities slice to prevent external modification.
+// Returns an empty slice if not connected. After connecting, returns a copy
+// of the capabilities slice to prevent external modification.
 //
 // Example:
 //
@@ -763,6 +907,8 @@ func (c *Client) ServerCapabilities() []string {
 
 // ServerHasCapability checks if the server supports a specific capability
 //
+// Returns false if not connected or capability not found.
+//
 // Example:
 //
 //	if client.ServerHasCapability("urn:ietf:params:netconf:capability:candidate:1.0") {
@@ -771,6 +917,7 @@ func (c *Client) ServerCapabilities() []string {
 func (c *Client) ServerHasCapability(capability string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	for _, cap := range c.Capabilities {
 		if cap == capability {
 			return true
@@ -780,6 +927,8 @@ func (c *Client) ServerHasCapability(capability string) bool {
 }
 
 // SessionID returns the NETCONF session ID
+//
+// Returns empty string if not connected.
 func (c *Client) SessionID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -787,6 +936,8 @@ func (c *Client) SessionID() string {
 }
 
 // ServerVersion returns the NETCONF server version
+//
+// Returns empty string if not connected.
 func (c *Client) ServerVersion() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -1140,13 +1291,12 @@ func (c *Client) waitForLockRelease(ctx context.Context, target string) error {
 //
 // This method closes the existing connection and establishes a new one,
 // re-negotiating capabilities. Used internally when transport errors are
-// detected during retry logic, and externally via the public Reopen() method.
+// detected during retry logic.
+//
+// PRECONDITION: Caller must hold c.mu.Lock() (write lock)
 //
 // Returns an error if reconnection fails.
 func (c *Client) reconnect() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.logger.Info(context.Background(), "NETCONF reconnecting",
 		"host", c.Host)
 
@@ -1156,46 +1306,8 @@ func (c *Client) reconnect() error {
 		c.driver = nil
 	}
 
-	// Build scrapligo options using helper method (ensures consistency with NewClient)
-	scrapliOpts := c.buildScrapligoOptions()
-
-	// Create new driver
-	driver, err := netconf.NewDriver(c.Host, scrapliOpts...)
-	if err != nil {
-		c.logger.Error(context.Background(), "NETCONF reconnection failed",
-			"host", c.Host,
-			"error", err.Error())
-		return fmt.Errorf("failed to create driver during reconnect: %w", err)
-	}
-
-	// Open connection
-	err = driver.Open()
-	if err != nil {
-		c.logger.Error(context.Background(), "NETCONF reconnection failed",
-			"host", c.Host,
-			"error", err.Error())
-		return fmt.Errorf("failed to open connection during reconnect: %w", err)
-	}
-
-	// Store new driver and capabilities
-	c.driver = driver
-	c.Capabilities = driver.ServerCapabilities()
-	c.sessionID = fmt.Sprintf("%d", driver.SessionID())
-
-	// Re-extract server version
-	for _, cap := range c.Capabilities {
-		if cap == netconfBase10URN ||
-			cap == "urn:ietf:params:netconf:base:1.1" {
-			c.serverVersion = driver.SelectedVersion
-			break
-		}
-	}
-
-	c.logger.Info(context.Background(), "NETCONF reconnected",
-		"host", c.Host,
-		"sessionID", c.sessionID)
-
-	return nil
+	// Reuse connect() method for DRY principle
+	return c.connect()
 }
 
 // sendRPC sends a NETCONF RPC request via scrapligo and parses the response

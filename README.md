@@ -13,6 +13,7 @@
 ## Features
 
 - **Simple API**: Fluent, chainable API design
+- **Lazy Connection**: Automatic connection establishment on first operation
 - **XML Manipulation**: Path-based XML operations using [xmldot](https://github.com/netascode/xmldot) (like gjson/sjson for JSON)
 - **Complete NETCONF Support**: All standard operations (Get, GetConfig, EditConfig, Lock, Commit, etc.)
 - **Robust Transport**: Built on [scrapligo](https://github.com/scrapli/scrapligo) for reliable SSH connectivity and NETCONF protocol handling
@@ -47,7 +48,7 @@ import (
 )
 
 func main() {
-    // Create client
+    // Create client (connection established lazily on first operation)
     client, err := netconf.NewClient(
         "192.168.1.1",
         netconf.Username("admin"),
@@ -59,7 +60,7 @@ func main() {
     }
     defer client.Close()
 
-    // Get configuration with filter
+    // Connection opens automatically on first operation
     ctx := context.Background()
     filter := netconf.SubtreeFilter("<interfaces/>")
     res, err := client.GetConfig(ctx, "running", filter)
@@ -77,7 +78,10 @@ func main() {
 
 ### Client Creation
 
+The client uses lazy connection - the connection is established automatically on the first operation:
+
 ```go
+// Create client without connecting
 client, err := netconf.NewClient(
     "192.168.1.1",
     netconf.Username("admin"),
@@ -86,6 +90,14 @@ client, err := netconf.NewClient(
     netconf.MaxRetries(5),
     netconf.OperationTimeout(120*time.Second),
 )
+
+// Connection established automatically on first operation
+res, err := client.GetConfig(ctx, "running", filter)
+
+// Or open connection explicitly if needed
+if err := client.Open(); err != nil {
+    log.Fatal(err)
+}
 ```
 
 ### Get Configuration
@@ -167,10 +179,10 @@ client, err := netconf.NewClient(
 
 ### Connection Lifecycle Management
 
-The connection is opened automatically when creating a client with `NewClient()`. For use cases that require explicit connection management, use `Reopen()` to reestablish closed connections and `IsClosed()` to check connection state:
+The client uses lazy connection - the connection is established automatically on the first operation. For explicit connection control, use `Open()` to establish the connection immediately, and `IsClosed()` to check connection state:
 
 ```go
-// Create client (connection opens automatically)
+// Create client without connecting
 client, err := netconf.NewClient(
     "192.168.1.1",
     netconf.Username("admin"),
@@ -180,18 +192,17 @@ if err != nil {
     log.Fatal(err)
 }
 
-// Use client for first operation
+// Connection opens automatically on first operation
 res, err := client.GetConfig(ctx, "running", filter)
-client.Close()  // Close after operation
 
-// Later - check and reopen if needed
-if client.IsClosed() {
-    if err := client.Reopen(); err != nil {
-        log.Fatal(err)
-    }
+// Close connection
+client.Close()
+
+// Reopen connection (Open is idempotent - safe to call even if already open)
+if err := client.Open(); err != nil {
+    log.Fatal(err)
 }
 res, err = client.EditConfig(ctx, "candidate", config)
-client.Close()  // Close after operation
 ```
 
 ### Capability Checking

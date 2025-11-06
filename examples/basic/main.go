@@ -30,7 +30,7 @@ func main() {
 	username := getEnv("NETCONF_USERNAME", "admin")
 	password := getEnv("NETCONF_PASSWORD", "secret")
 
-	// Create client with options
+	// Create client with options (connection established lazily on first operation)
 	client, err := netconf.NewClient(
 		host,
 		netconf.Username(username),
@@ -42,17 +42,20 @@ func main() {
 	}
 	defer client.Close()
 
-	fmt.Printf("Connected to %s (session: %s)\n", host, client.SessionID())
+	// Connection opens automatically on first operation
+	// Session information available after connection
+	fmt.Printf("Client created for %s\n", host)
 
 	ctx := context.Background()
 
-	// GetConfig with filter
+	// GetConfig with filter (connection opens automatically here)
 	fmt.Println("\n=== GetConfig ===")
 	filter := netconf.SubtreeFilter("<interfaces/>")
 	res, err := client.GetConfig(ctx, "running", filter)
 	if err != nil {
 		log.Fatalf("GetConfig failed: %v", err)
 	}
+	fmt.Printf("Connected! Session: %s\n", client.SessionID())
 
 	// Parse response with xmldot
 	if res.Res.Exists() {

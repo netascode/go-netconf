@@ -32,7 +32,7 @@ func main() {
 	username := getEnv("NETCONF_USERNAME", "admin")
 	password := getEnv("NETCONF_PASSWORD", "secret")
 
-	// Create client (thread-safe for concurrent reads)
+	// Create client (connection established lazily, thread-safe for concurrent reads)
 	client, err := netconf.NewClient(
 		host,
 		netconf.Username(username),
@@ -44,7 +44,7 @@ func main() {
 	}
 	defer client.Close()
 
-	fmt.Printf("Connected to %s\n", host)
+	fmt.Printf("Client created for %s (connection opens on first operation)\n", host)
 
 	ctx := context.Background()
 

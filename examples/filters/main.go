@@ -29,7 +29,7 @@ func main() {
 	username := getEnv("NETCONF_USERNAME", "admin")
 	password := getEnv("NETCONF_PASSWORD", "secret")
 
-	// Create client
+	// Create client (connection established lazily on first operation)
 	client, err := netconf.NewClient(
 		host,
 		netconf.Username(username),
@@ -41,7 +41,7 @@ func main() {
 	}
 	defer client.Close()
 
-	fmt.Printf("Connected to %s\n", host)
+	fmt.Printf("Client created for %s\n", host)
 
 	ctx := context.Background()
 
