@@ -6,6 +6,7 @@ package netconf
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -1397,8 +1398,17 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 			return res, nil
 		}
 
-		// Check if transient
+		// Check if transient (check both NETCONF errors and Go errors)
 		isTransient := c.checkTransientError(res.Errors)
+
+		// Also check for scrapligo transient errors (timeout, connection errors)
+		if err != nil {
+			if errors.Is(err, util.ErrTimeoutError) ||
+				errors.Is(err, util.ErrConnectionError) ||
+				errors.Is(err, util.ErrOperationError) {
+				isTransient = true
+			}
+		}
 
 		// Handle lock-denied errors with polling before general backoff
 		if isTransient {
