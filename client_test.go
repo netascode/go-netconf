@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/scrapli/scrapligo/util"
 )
 
 // Test constants (GOCONST)
@@ -433,7 +435,55 @@ func TestClientCheckTransientError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &Client{}
-			result := client.checkTransientError(tt.errors)
+			result := client.checkTransientError(tt.errors, nil)
+			if result != tt.isTransient {
+				t.Errorf("expected isTransient %v, got %v", tt.isTransient, result)
+			}
+		})
+	}
+
+	// Test scrapligo Go errors
+	scrapligoTests := []struct {
+		name        string
+		goErr       error
+		isTransient bool
+	}{
+		{
+			name:        "timeout error",
+			goErr:       util.ErrTimeoutError,
+			isTransient: true,
+		},
+		{
+			name:        "connection error",
+			goErr:       util.ErrConnectionError,
+			isTransient: true,
+		},
+		{
+			name:        "operation error",
+			goErr:       util.ErrOperationError,
+			isTransient: true,
+		},
+		{
+			name:        "wrapped timeout error",
+			goErr:       fmt.Errorf("operation failed: %w", util.ErrTimeoutError),
+			isTransient: true,
+		},
+		{
+			name:        "non-transient error",
+			goErr:       util.ErrAuthError,
+			isTransient: false,
+		},
+		{
+			name:        "nil error",
+			goErr:       nil,
+			isTransient: false,
+		},
+	}
+
+	for _, tt := range scrapligoTests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &Client{}
+			result := client.checkTransientError([]ErrorModel{}, tt.goErr)
 			if result != tt.isTransient {
 				t.Errorf("expected isTransient %v, got %v", tt.isTransient, result)
 			}
@@ -603,7 +653,7 @@ func BenchmarkClientCheckTransientError(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = client.checkTransientError(errors)
+		_ = client.checkTransientError(errors, nil)
 	}
 }
 

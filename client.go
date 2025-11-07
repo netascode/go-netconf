@@ -1168,17 +1168,13 @@ func redactNestedElement(xml, tagName string) string {
 
 // checkTransientError checks if an error is transient and should be retried
 //
-// This method matches error patterns against the TransientErrors list defined
-// in errors.go. A match on any pattern field (ErrorType, ErrorTag, ErrorMessage)
-// indicates a transient error.
+// This method checks both:
+// 1. NETCONF rpc-error elements against TransientErrors patterns (errors.go)
+// 2. Go errors from scrapligo (timeout, connection, operation errors)
 //
-// Returns true if the error matches any transient pattern.
-func (c *Client) checkTransientError(errs []ErrorModel) bool {
-	if len(errs) == 0 {
-		return false
-	}
-
-	// Check each error against transient patterns
+// Returns true if either type of error matches transient patterns.
+func (c *Client) checkTransientError(errs []ErrorModel, goErr error) bool {
+	// Check NETCONF rpc-error elements
 	for _, err := range errs {
 		for _, pattern := range TransientErrors {
 			// Match error type (empty pattern matches any)
@@ -1200,6 +1196,15 @@ func (c *Client) checkTransientError(errs []ErrorModel) bool {
 			}
 
 			// All non-empty pattern fields matched
+			return true
+		}
+	}
+
+	// Check scrapligo Go errors (timeout, connection, operation errors)
+	if goErr != nil {
+		if errors.Is(goErr, util.ErrTimeoutError) ||
+			errors.Is(goErr, util.ErrConnectionError) ||
+			errors.Is(goErr, util.ErrOperationError) {
 			return true
 		}
 	}
@@ -1398,17 +1403,8 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 			return res, nil
 		}
 
-		// Check if transient (check both NETCONF errors and Go errors)
-		isTransient := c.checkTransientError(res.Errors)
-
-		// Also check for scrapligo transient errors (timeout, connection errors)
-		if err != nil {
-			if errors.Is(err, util.ErrTimeoutError) ||
-				errors.Is(err, util.ErrConnectionError) ||
-				errors.Is(err, util.ErrOperationError) {
-				isTransient = true
-			}
-		}
+		// Check if transient (checks both NETCONF rpc-errors and scrapligo Go errors)
+		isTransient := c.checkTransientError(res.Errors, err)
 
 		// Handle lock-denied errors with polling before general backoff
 		if isTransient {

@@ -176,7 +176,7 @@ func TestConcurrentCheckTransientError(t *testing.T) {
 				errors = errors2
 			}
 
-			result := client.checkTransientError(errors)
+			result := client.checkTransientError(errors, nil)
 			if idx%2 == 0 && !result {
 				t.Error("expected lock-denied to be transient")
 			}
