@@ -656,11 +656,7 @@ func (c *Client) Lock(ctx context.Context, target string, mods ...func(*Req)) (R
 		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
 	}
 
-	// Acquire write lock since this modifies device state
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Build request
+	// Build request (no lock needed - just building a struct)
 	req := &Req{
 		Operation: "lock",
 		Target:    target,
@@ -671,7 +667,8 @@ func (c *Client) Lock(ctx context.Context, target string, mods ...func(*Req)) (R
 		mod(req)
 	}
 
-	// Send RPC and parse response
+	// Send RPC without holding mutex - driver has its own synchronization
+	// and waitForLockRelease may recursively call Lock() to test availability
 	return c.sendRPC(ctx, req)
 }
 
@@ -693,11 +690,7 @@ func (c *Client) Unlock(ctx context.Context, target string, mods ...func(*Req)) 
 		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
 	}
 
-	// Acquire write lock since this modifies device state
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Build request
+	// Build request (no lock needed - just building a struct)
 	req := &Req{
 		Operation: "unlock",
 		Target:    target,
@@ -708,7 +701,7 @@ func (c *Client) Unlock(ctx context.Context, target string, mods ...func(*Req)) 
 		mod(req)
 	}
 
-	// Send RPC and parse response
+	// Send RPC without holding mutex - driver has its own synchronization
 	return c.sendRPC(ctx, req)
 }
 
