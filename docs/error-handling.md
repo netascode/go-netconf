@@ -571,7 +571,7 @@ Configure timeouts based on operation:
 ```go
 // Quick operations
 client, _ := netconf.NewClient("192.168.1.1",
-    netconf.OperationTimeout(30*time.Second))
+    netconf.TotalTimeout(1*time.Minute))
 
 // Long-running operations
 res, err := client.Commit(ctx, netconf.Timeout(5*time.Minute))
@@ -648,9 +648,10 @@ client, err := netconf.NewClient("192.168.1.1",
 
 **Solutions:**
 ```go
-// Increase global timeout
+// Increase timeouts
 client, _ := netconf.NewClient("192.168.1.1",
-    netconf.OperationTimeout(120*time.Second))
+    netconf.AttemptTimeout(60*time.Second),   // Per-attempt timeout
+    netconf.TotalTimeout(5*time.Minute))      // Total timeout across retries
 
 // Increase per-operation timeout
 res, err := client.Get(ctx, filter, netconf.Timeout(5*time.Minute))
@@ -775,7 +776,8 @@ func main() {
         netconf.Username("automation"),
         netconf.SSHKey("/path/to/key"),
         netconf.MaxRetries(5),
-        netconf.OperationTimeout(2*time.Minute),
+        netconf.AttemptTimeout(60*time.Second),
+        netconf.TotalTimeout(5*time.Minute),
         netconf.LockReleaseTimeout(3*time.Minute),
         netconf.BackoffMinDelay(2*time.Second),
         netconf.BackoffMaxDelay(60*time.Second),

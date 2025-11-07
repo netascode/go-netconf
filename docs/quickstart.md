@@ -382,8 +382,9 @@ func main() {
         "192.168.1.1",
         netconf.Username("admin"),
         netconf.Password("secret"),
-        netconf.ConnectTimeout(30*time.Second),
-        netconf.OperationTimeout(60*time.Second),
+        netconf.ConnectTimeout(15*time.Second),
+        netconf.AttemptTimeout(45*time.Second),
+        netconf.TotalTimeout(3*time.Minute),
         netconf.MaxRetries(5),
     )
     if err != nil {
@@ -439,8 +440,9 @@ func main() {
         "192.168.1.1",
         netconf.Username("admin"),
         netconf.Password("secret"),
-        netconf.ConnectTimeout(30*time.Second),
-        netconf.OperationTimeout(2*time.Minute),
+        netconf.ConnectTimeout(15*time.Second),
+        netconf.AttemptTimeout(60*time.Second),
+        netconf.TotalTimeout(5*time.Minute),
         netconf.MaxRetries(5),
         netconf.LockReleaseTimeout(2*time.Minute),
     )

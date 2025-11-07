@@ -91,13 +91,13 @@ func TestContextTimeout(t *testing.T) {
 	// that the code path exists and is syntactically correct
 
 	client := &Client{
-		OperationTimeout: 60,
+		TotalTimeout: 60,
 	}
 
 	ctx := context.Background()
 	// Verify that client has timeout configured
-	if client.OperationTimeout == 0 {
-		t.Error("expected OperationTimeout to be set")
+	if client.TotalTimeout == 0 {
+		t.Error("expected TotalTimeout to be set")
 	}
 
 	// Context should respect the timeout

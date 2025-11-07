@@ -368,7 +368,7 @@ func NewNetconfManager(host, username, password string) (*NetconfManager, error)
     readClient, err := netconf.NewClient(host,
         netconf.Username(username),
         netconf.Password(password),
-        netconf.OperationTimeout(30*time.Second))
+        netconf.TotalTimeout(1*time.Minute))
     if err != nil {
         return nil, err
     }
@@ -377,7 +377,8 @@ func NewNetconfManager(host, username, password string) (*NetconfManager, error)
     writeClient, err := netconf.NewClient(host,
         netconf.Username(username),
         netconf.Password(password),
-        netconf.OperationTimeout(5*time.Minute),
+        netconf.AttemptTimeout(60*time.Second),
+        netconf.TotalTimeout(10*time.Minute),
         netconf.MaxRetries(5))
     if err != nil {
         readClient.Close()

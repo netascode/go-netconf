@@ -54,8 +54,9 @@ const (
 	DefaultBackoffMaxDelay    = 60 * time.Second
 	DefaultBackoffDelayFactor = 2
 	DefaultLockReleaseTimeout = 120 * time.Second
-	DefaultConnectTimeout     = 30 * time.Second
-	DefaultOperationTimeout   = 60 * time.Second
+	DefaultConnectTimeout     = 10 * time.Second
+	DefaultAttemptTimeout     = 30 * time.Second
+	DefaultTotalTimeout       = 2 * time.Minute
 	DefaultPrettyPrintLogs    = true
 )
 
@@ -150,7 +151,8 @@ type Client struct {
 	BackoffDelayFactor float64
 	LockReleaseTimeout time.Duration
 	ConnectTimeout     time.Duration
-	OperationTimeout   time.Duration
+	AttemptTimeout     time.Duration // Timeout for a single operation attempt (scrapligo timeout)
+	TotalTimeout       time.Duration // Total timeout across all retry attempts
 
 	// Capability tracking
 	Capabilities []string
@@ -219,7 +221,7 @@ func (c *Client) buildScrapligoOptions() []util.Option {
 		options.WithAuthPassword(c.password),
 		options.WithPort(c.Port),
 		options.WithTimeoutSocket(c.ConnectTimeout),
-		options.WithTimeoutOps(c.OperationTimeout),
+		options.WithTimeoutOps(c.AttemptTimeout),
 		options.WithTransportType(transport.StandardTransport),
 	}
 
@@ -248,7 +250,8 @@ func NewClient(host string, opts ...func(*Client)) (*Client, error) {
 		BackoffDelayFactor: DefaultBackoffDelayFactor,
 		LockReleaseTimeout: DefaultLockReleaseTimeout,
 		ConnectTimeout:     DefaultConnectTimeout,
-		OperationTimeout:   DefaultOperationTimeout,
+		AttemptTimeout:     DefaultAttemptTimeout,
+		TotalTimeout:       DefaultTotalTimeout,
 		logger:             &NoOpLogger{},
 		prettyPrintLogs:    DefaultPrettyPrintLogs,
 		redactionPatterns:  defaultRedactionPatterns,
@@ -1348,7 +1351,7 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 	// Apply timeout with proper priority:
 	// 1. Request-specific timeout (highest priority)
 	// 2. Context deadline (if already set)
-	// 3. Default operation timeout (fallback)
+	// 3. Default total timeout (fallback - spans all retry attempts)
 	if req.Timeout > 0 {
 		// Request-specific timeout takes precedence
 		var cancel context.CancelFunc
@@ -1357,7 +1360,7 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 	} else if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		// Only apply default if no deadline already set
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.OperationTimeout)
+		ctx, cancel = context.WithTimeout(ctx, c.TotalTimeout)
 		defer cancel()
 	}
 

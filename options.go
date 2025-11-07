@@ -46,10 +46,19 @@ func ConnectTimeout(duration time.Duration) func(*Client) {
 	}
 }
 
-// OperationTimeout sets the operation timeout (default: 60s)
-func OperationTimeout(duration time.Duration) func(*Client) {
+// AttemptTimeout sets the timeout for a single operation attempt (default: 30s)
+// This timeout is enforced by scrapligo for each individual RPC call.
+func AttemptTimeout(duration time.Duration) func(*Client) {
 	return func(c *Client) {
-		c.OperationTimeout = duration
+		c.AttemptTimeout = duration
+	}
+}
+
+// TotalTimeout sets the total timeout across all retry attempts (default: 2min)
+// This timeout spans all retry attempts including backoff delays.
+func TotalTimeout(duration time.Duration) func(*Client) {
+	return func(c *Client) {
+		c.TotalTimeout = duration
 	}
 }
 

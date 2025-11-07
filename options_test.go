@@ -61,11 +61,20 @@ func TestClientOptions(t *testing.T) {
 			},
 		},
 		{
-			name:   "OperationTimeout option",
-			option: OperationTimeout(120 * time.Second),
+			name:   "AttemptTimeout option",
+			option: AttemptTimeout(45 * time.Second),
 			validate: func(t *testing.T, c *Client) {
-				if c.OperationTimeout != 120*time.Second {
-					t.Errorf("expected OperationTimeout 120s, got %v", c.OperationTimeout)
+				if c.AttemptTimeout != 45*time.Second {
+					t.Errorf("expected AttemptTimeout 45s, got %v", c.AttemptTimeout)
+				}
+			},
+		},
+		{
+			name:   "TotalTimeout option",
+			option: TotalTimeout(3 * time.Minute),
+			validate: func(t *testing.T, c *Client) {
+				if c.TotalTimeout != 3*time.Minute {
+					t.Errorf("expected TotalTimeout 3min, got %v", c.TotalTimeout)
 				}
 			},
 		},
@@ -219,7 +228,8 @@ func TestMultipleOptions(t *testing.T) {
 		Port(8830),
 		MaxRetries(3),
 		ConnectTimeout(20 * time.Second),
-		OperationTimeout(90 * time.Second),
+		AttemptTimeout(45 * time.Second),
+		TotalTimeout(3 * time.Minute),
 		BackoffMinDelay(2 * time.Second),
 		BackoffMaxDelay(90 * time.Second),
 		BackoffDelayFactor(1.5),
@@ -246,8 +256,11 @@ func TestMultipleOptions(t *testing.T) {
 	if client.ConnectTimeout != 20*time.Second {
 		t.Errorf("expected ConnectTimeout 20s, got %v", client.ConnectTimeout)
 	}
-	if client.OperationTimeout != 90*time.Second {
-		t.Errorf("expected OperationTimeout 90s, got %v", client.OperationTimeout)
+	if client.AttemptTimeout != 45*time.Second {
+		t.Errorf("expected AttemptTimeout 45s, got %v", client.AttemptTimeout)
+	}
+	if client.TotalTimeout != 3*time.Minute {
+		t.Errorf("expected TotalTimeout 3min, got %v", client.TotalTimeout)
 	}
 	if client.BackoffMinDelay != 2*time.Second {
 		t.Errorf("expected BackoffMinDelay 2s, got %v", client.BackoffMinDelay)

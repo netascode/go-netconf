@@ -735,8 +735,9 @@ res, err := client.Get(ctx, filter, netconf.Timeout(30*time.Second))
 
 **Notes:**
 - Request-specific timeout takes precedence over context deadline
-- If no timeout is specified, uses the client's `OperationTimeout` (default: 60s)
+- If no timeout is specified, uses the client's `TotalTimeout` (default: 2min)
 - Useful for operations that may take longer than the default timeout
+- This timeout spans all retry attempts
 
 ### DefaultOperation
 
@@ -951,7 +952,7 @@ if err != nil {
 
 ### Best Practices
 
-- **Configure appropriate timeouts**: Set `OperationTimeout` based on expected operation duration
+- **Configure appropriate timeouts**: Set `AttemptTimeout` for per-operation timeout and `TotalTimeout` for total retry duration
 - **Use context deadlines**: Combine with context timeouts for request-level control
 - **Monitor retry counts**: High retry counts may indicate systemic issues
 - **Handle non-transient errors**: Not all errors are retryable - implement proper error handling

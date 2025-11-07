@@ -38,7 +38,8 @@ func TestClientDefaultConfiguration(t *testing.T) {
 			BackoffDelayFactor: 1.2,
 			LockReleaseTimeout: 120 * time.Second,
 			ConnectTimeout:     30 * time.Second,
-			OperationTimeout:   60 * time.Second,
+			AttemptTimeout:     30 * time.Second,
+			TotalTimeout:       2 * time.Minute,
 		}
 
 		// Apply options
@@ -148,7 +149,8 @@ func TestClientOpen(t *testing.T) {
 			username:          "test",
 			password:          "test",
 			ConnectTimeout:    1 * time.Second,
-			OperationTimeout:  1 * time.Second,
+			AttemptTimeout:    1 * time.Second,
+			TotalTimeout:      5 * time.Second,
 			logger:            &NoOpLogger{},
 			prettyPrintLogs:   false,
 			redactionPatterns: defaultRedactionPatterns,
@@ -176,7 +178,8 @@ func TestClientOpen(t *testing.T) {
 			BackoffDelayFactor: 3.0,
 			LockReleaseTimeout: 240 * time.Second,
 			ConnectTimeout:     45 * time.Second,
-			OperationTimeout:   90 * time.Second,
+			AttemptTimeout:     60 * time.Second,
+			TotalTimeout:       5 * time.Minute,
 			logger:             &NoOpLogger{},
 			prettyPrintLogs:    true,
 			redactionPatterns:  defaultRedactionPatterns,
@@ -231,7 +234,8 @@ func TestClientOpen(t *testing.T) {
 			password:          "test",
 			driver:            nil, // Simulate closed state
 			ConnectTimeout:    1 * time.Second,
-			OperationTimeout:  1 * time.Second,
+			AttemptTimeout:    1 * time.Second,
+			TotalTimeout:      5 * time.Second,
 			logger:            &NoOpLogger{},
 			prettyPrintLogs:   false,
 			redactionPatterns: defaultRedactionPatterns,

@@ -88,7 +88,8 @@ client, err := netconf.NewClient(
     netconf.Password("secret"),
     netconf.Port(830),
     netconf.MaxRetries(5),
-    netconf.OperationTimeout(120*time.Second),
+    netconf.AttemptTimeout(60*time.Second),
+    netconf.TotalTimeout(5*time.Minute),
 )
 
 // Connection established automatically on first operation
