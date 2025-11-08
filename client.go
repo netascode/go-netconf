@@ -1201,15 +1201,45 @@ func (c *Client) checkTransientError(errs []ErrorModel, goErr error) bool {
 	}
 
 	// Check scrapligo Go errors (timeout, connection, operation errors)
-	if goErr != nil {
-		if errors.Is(goErr, util.ErrTimeoutError) ||
-			errors.Is(goErr, util.ErrConnectionError) ||
-			errors.Is(goErr, util.ErrOperationError) {
+	return isScrapliogoErrorTransient(goErr)
+}
+
+// isScrapliogoErrorTransient checks if a scrapligo Go error is transient
+//
+// These errors indicate temporary conditions that may succeed on retry:
+//   - ErrTimeoutError: socket, transport, or channel (ops) timeouts
+//   - ErrConnectionError: connection failures (host key verification, etc.)
+//   - ErrOperationError: operation timeout issues
+//
+// Returns true if the error is transient and should trigger retry.
+func isScrapliogoErrorTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, util.ErrTimeoutError) ||
+		errors.Is(err, util.ErrConnectionError) ||
+		errors.Is(err, util.ErrOperationError)
+}
+
+// hasTransportError checks if errors indicate transport/connection issues
+//
+// Checks both NETCONF <rpc-error> elements with ErrorType="transport" and
+// scrapligo Go errors (timeout, connection, operation errors).
+//
+// Transport errors require session reconnection before retry to ensure a
+// clean connection state.
+//
+// Returns true if transport/connection errors are detected.
+func (c *Client) hasTransportError(errs []ErrorModel, goErr error) bool {
+	// Check NETCONF rpc-error elements for transport type
+	for _, rpcErr := range errs {
+		if rpcErr.ErrorType == transportErrType {
 			return true
 		}
 	}
 
-	return false
+	// Check scrapligo Go errors for timeout/connection issues
+	return isScrapliogoErrorTransient(goErr)
 }
 
 // Backoff calculates the backoff delay for retry attempt using exponential backoff with jitter
@@ -1406,6 +1436,14 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 		// Check if transient (checks both NETCONF rpc-errors and scrapligo Go errors)
 		isTransient := c.checkTransientError(res.Errors, err)
 
+		// Log transient detection for debugging
+		if err != nil && isTransient {
+			c.logger.Debug(ctx, "NETCONF transient error detected",
+				"operation", req.Operation,
+				"attempt", attempt,
+				"error", err.Error())
+		}
+
 		// Handle lock-denied errors with polling before general backoff
 		if isTransient {
 			// Check if this is a lock-denied error
@@ -1438,14 +1476,9 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 			}
 		}
 
-		// Check for transport errors (connection issues)
-		hasTransportError := false
-		for _, rpcErr := range res.Errors {
-			if rpcErr.ErrorType == transportErrType {
-				hasTransportError = true
-				break
-			}
-		}
+		// Check for transport/connection errors that require reconnection
+		// This includes both NETCONF <rpc-error> transport errors and scrapligo Go errors
+		hasTransportError := c.hasTransportError(res.Errors, err)
 
 		// Not transient or max retries reached
 		if !isTransient || attempt >= c.MaxRetries {
@@ -1489,6 +1522,10 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 
 		// Handle transport errors with reconnection
 		if hasTransportError {
+			c.logger.Info(ctx, "NETCONF transport error detected, reconnecting",
+				"operation", req.Operation,
+				"attempt", attempt)
+
 			// Attempt to reconnect
 			if reconnectErr := c.reconnect(); reconnectErr != nil {
 				// Reconnection failed, return original error
@@ -1501,6 +1538,9 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 					IsTransient: true,
 				}
 			}
+			c.logger.Info(ctx, "NETCONF reconnection successful",
+				"operation", req.Operation,
+				"sessionID", c.sessionID)
 			// Reconnection succeeded, continue to backoff and retry
 		}
 
