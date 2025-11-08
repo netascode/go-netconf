@@ -390,6 +390,17 @@ func (c *Client) ensureConnected() error {
 	return c.connect()
 }
 
+// requireDriver checks if the driver is initialized and returns an error if not.
+// This helper centralizes nil driver checks and provides consistent error messages.
+//
+// PRECONDITION: Caller must hold c.mu (read or write lock)
+func (c *Client) requireDriver(operation string) error {
+	if c.driver == nil {
+		return fmt.Errorf("operation %s failed: driver is nil (connection closed)", operation)
+	}
+	return nil
+}
+
 // Close closes the NETCONF session and cleans up resources
 //
 // This sends a close-session RPC to the server and closes the underlying
@@ -467,6 +478,11 @@ func (c *Client) Get(ctx context.Context, filter Filter, mods ...func(*Req)) (Re
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	// Defensive check: Verify driver still valid after acquiring lock
+	if err := c.requireDriver("get"); err != nil {
+		return Res{}, err
+	}
+
 	// Build request
 	req := &Req{
 		Operation: "get",
@@ -500,6 +516,11 @@ func (c *Client) GetConfig(ctx context.Context, source string, filter Filter, mo
 	// Acquire read lock before accessing driver
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
+	// Defensive check: Verify driver still valid after acquiring lock
+	if err := c.requireDriver("get-config"); err != nil {
+		return Res{}, err
+	}
 
 	// Build request
 	req := &Req{
@@ -539,6 +560,11 @@ func (c *Client) EditConfig(ctx context.Context, target, config string, mods ...
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Defensive check: Verify driver still valid after acquiring lock
+	if err := c.requireDriver("edit-config"); err != nil {
+		return Res{}, err
+	}
+
 	// Build request
 	req := &Req{
 		Operation: "edit-config",
@@ -571,6 +597,11 @@ func (c *Client) CopyConfig(ctx context.Context, source, target string, mods ...
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Defensive check: Verify driver still valid after acquiring lock
+	if err := c.requireDriver("copy-config"); err != nil {
+		return Res{}, err
+	}
 
 	// Build request
 	req := &Req{
@@ -607,6 +638,11 @@ func (c *Client) DeleteConfig(ctx context.Context, target string, mods ...func(*
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Defensive check: Verify driver still valid after acquiring lock
+	if err := c.requireDriver("delete-config"); err != nil {
+		return Res{}, err
+	}
+
 	// Additional check: only startup can be deleted per RFC 6241
 	target = strings.TrimSpace(strings.ToLower(target))
 	if target != "startup" {
@@ -634,14 +670,21 @@ func (c *Client) DeleteConfig(ctx context.Context, target string, mods ...func(*
 //
 // Per RFC 6241 Section 7.5, a lock prevents other NETCONF sessions from
 // performing configuration changes. If another session holds the lock,
-// Lock() will block until the lock becomes available or the operation times out.
+// Lock() will automatically retry with exponential backoff until the lock
+// becomes available or the context deadline is reached.
+//
+// Connection Guarantee: This method ensures a stable connection exists
+// before attempting to acquire the lock. This prevents race conditions in
+// concurrent environments.
 //
 // IMPORTANT: Always use defer to ensure locks are released even if errors occur.
 // Failure to unlock can cause deadlocks and prevent other sessions from operating.
 //
 // Example:
 //
-//	ctx := context.Background()
+//	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+//	defer cancel()
+//
 //	res, err := client.Lock(ctx, "candidate")
 //	if err != nil {
 //	    log.Fatal(err)
@@ -668,18 +711,27 @@ func (c *Client) Lock(ctx context.Context, target string, mods ...func(*Req)) (R
 		mod(req)
 	}
 
-	// Send RPC without holding mutex - driver has its own synchronization
-	// and waitForLockRelease may recursively call Lock() to test availability
+	// Send RPC without holding c.mu - driver has its own synchronization.
+	// This differs from other operations (Get, EditConfig, etc.) which hold
+	// c.mu during sendRPC(). Lock/Unlock operations are NETCONF protocol
+	// operations that don't access client state, so driver-level
+	// synchronization is sufficient. Connection validation happens in
+	// executeRPC() (line 1582).
 	return c.sendRPC(ctx, req)
 }
 
 // Unlock unlocks the specified datastore
 //
+// Connection Guarantee: Like Lock(), this method ensures a stable connection exists
+// before attempting to release the lock.
+//
 // See Lock() for complete lock/unlock documentation and proper usage with defer.
 //
 // Example:
 //
-//	ctx := context.Background()
+//	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+//	defer cancel()
+//
 //	res, err := client.Lock(ctx, "candidate")
 //	if err != nil {
 //	    log.Fatal(err)
@@ -702,7 +754,8 @@ func (c *Client) Unlock(ctx context.Context, target string, mods ...func(*Req)) 
 		mod(req)
 	}
 
-	// Send RPC without holding mutex - driver has its own synchronization
+	// Send RPC without holding c.mu - driver has its own synchronization.
+	// See Lock() for explanation of why this differs from other operations.
 	return c.sendRPC(ctx, req)
 }
 
@@ -754,6 +807,11 @@ func (c *Client) Commit(ctx context.Context, mods ...func(*Req)) (Res, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Defensive check: Verify driver still valid after acquiring lock
+	if err := c.requireDriver("commit"); err != nil {
+		return Res{}, err
+	}
+
 	// Build request
 	req := &Req{
 		Operation: "commit",
@@ -784,6 +842,11 @@ func (c *Client) Discard(ctx context.Context, mods ...func(*Req)) (Res, error) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Defensive check: Verify driver still valid after acquiring lock
+	if err := c.requireDriver("discard"); err != nil {
+		return Res{}, err
+	}
 
 	// Build request
 	req := &Req{
@@ -818,6 +881,11 @@ func (c *Client) Validate(ctx context.Context, source string, mods ...func(*Req)
 	// datastore state, so concurrent validations are safe
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
+	// Defensive check: Verify driver still valid after acquiring lock
+	if err := c.requireDriver("validate"); err != nil {
+		return Res{}, err
+	}
 
 	// Build request
 	req := &Req{
@@ -865,6 +933,11 @@ func (c *Client) RPC(ctx context.Context, rpcXML string, mods ...func(*Req)) (Re
 	// Acquire write lock since custom RPCs may modify state
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Defensive check: Verify driver still valid after acquiring lock
+	if err := c.requireDriver("rpc"); err != nil {
+		return Res{}, err
+	}
 
 	// Build request
 	req := &Req{
@@ -1274,63 +1347,22 @@ func (c *Client) Backoff(attempt int) time.Duration {
 	return time.Duration(delay)
 }
 
-// waitForLockRelease waits for a datastore lock to be released
-//
-// This method polls the device to check if the lock is still held and waits
-// for it to be released. Used when a lock-denied error is encountered.
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - target: Datastore name ("running", "candidate", "startup")
-//
-// Returns an error if the lock is not released within LockReleaseTimeout.
-func (c *Client) waitForLockRelease(ctx context.Context, target string) error {
-	c.logger.Info(ctx, "NETCONF waiting for lock release",
-		"target", target,
-		"timeout", c.LockReleaseTimeout.String())
-
-	// Apply lock release timeout
-	ctx, cancel := context.WithTimeout(ctx, c.LockReleaseTimeout)
-	defer cancel()
-
-	// Poll interval (1 second)
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ErrLockReleaseTimeout
-		case <-ticker.C:
-			// Try to acquire lock
-			res, err := c.Lock(ctx, target)
-			if err == nil && res.OK {
-				// Lock acquired, release it immediately to verify availability
-				// Note: ignoring unlock errors is intentional - we proved lock availability
-				_, _ = c.Unlock(ctx, target) //nolint:errcheck // Intentional: verifying lock availability only
-
-				c.logger.Info(ctx, "NETCONF lock acquired",
-					"target", target)
-
-				return nil
-			}
-			// Lock still held, continue waiting
-		}
-	}
-}
-
 // reconnect attempts to reconnect the NETCONF session
 //
 // This method closes the existing connection and establishes a new one,
 // re-negotiating capabilities. Used internally when transport errors are
 // detected during retry logic.
 //
-// PRECONDITION: Caller must hold c.mu.Lock() (write lock)
+// PRECONDITION: Caller must NOT hold any locks (acquires write lock internally)
 //
 // Returns an error if reconnection fails.
 func (c *Client) reconnect() error {
 	c.logger.Info(context.Background(), "NETCONF reconnecting",
 		"host", c.Host)
+
+	// Acquire write lock for exclusive access to driver state
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	// Close existing connection (ignore errors - connection may already be broken)
 	if c.driver != nil {
@@ -1340,6 +1372,49 @@ func (c *Client) reconnect() error {
 
 	// Reuse connect() method for DRY principle
 	return c.connect()
+}
+
+// handleTransportErrorReconnect handles transport error reconnection with proper lock management.
+// This helper reduces cyclomatic complexity by extracting the lock release/reacquire logic.
+//
+// Parameters:
+//   - ctx: Context for logging
+//   - req: Request that failed with transport error
+//
+// Returns an error if reconnection fails.
+func (c *Client) handleTransportErrorReconnect(ctx context.Context, req *Req) error {
+	c.logger.Info(ctx, "NETCONF transport error detected, reconnecting",
+		"operation", req.Operation)
+
+	// Determine lock type held by caller based on operation type
+	// Read operations: get, get-config, validate (hold RLock)
+	// Write operations: edit-config, copy-config, delete-config, commit, discard, rpc (hold Lock)
+	// Lock operations: lock, unlock (hold no lock)
+	isReadOp := req.Operation == opGet || req.Operation == opGetConfig || req.Operation == opValidate
+	isWriteOp := req.Operation == opEditConfig || req.Operation == opCopyConfig ||
+		req.Operation == opDeleteConfig || req.Operation == opCommit ||
+		req.Operation == opDiscard || req.Operation == opRPC
+
+	// Release lock before reconnect (reconnect acquires its own write lock)
+	if isReadOp {
+		c.mu.RUnlock()
+	} else if isWriteOp {
+		c.mu.Unlock()
+	}
+	// Lock/Unlock operations don't hold c.mu, so nothing to release
+
+	// Attempt to reconnect (acquires and releases its own write lock)
+	reconnectErr := c.reconnect()
+
+	// Reacquire original lock type
+	if isReadOp {
+		c.mu.RLock()
+	} else if isWriteOp {
+		c.mu.Lock()
+	}
+	// Lock/Unlock operations don't hold c.mu, so nothing to reacquire
+
+	return reconnectErr
 }
 
 // sendRPC sends a NETCONF RPC request via scrapligo and parses the response
@@ -1444,38 +1519,6 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 				"error", err.Error())
 		}
 
-		// Handle lock-denied errors with polling before general backoff
-		if isTransient {
-			// Check if this is a lock-denied error
-			hasLockDenied := false
-			var lockTarget string
-			for _, rpcErr := range res.Errors {
-				if rpcErr.ErrorTag == "lock-denied" || rpcErr.ErrorTag == "in-use" {
-					hasLockDenied = true
-					// Extract target from request
-					lockTarget = req.Target
-					break
-				}
-			}
-
-			if hasLockDenied && lockTarget != "" {
-				// Use lock-specific polling instead of exponential backoff
-				if waitErr := c.waitForLockRelease(ctx, lockTarget); waitErr != nil {
-					// Timeout waiting for lock, return error
-					return res, &NetconfError{
-						Operation:   req.Operation,
-						Errors:      res.Errors,
-						Message:     "lock wait timeout",
-						InternalMsg: waitErr.Error(),
-						Retries:     attempt,
-						IsTransient: true,
-					}
-				}
-				// Lock released, retry immediately without backoff
-				continue
-			}
-		}
-
 		// Check for transport/connection errors that require reconnection
 		// This includes both NETCONF <rpc-error> transport errors and scrapligo Go errors
 		hasTransportError := c.hasTransportError(res.Errors, err)
@@ -1522,12 +1565,8 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 
 		// Handle transport errors with reconnection
 		if hasTransportError {
-			c.logger.Info(ctx, "NETCONF transport error detected, reconnecting",
-				"operation", req.Operation,
-				"attempt", attempt)
-
-			// Attempt to reconnect
-			if reconnectErr := c.reconnect(); reconnectErr != nil {
+			// Use helper to handle lock release/reacquire around reconnection
+			if reconnectErr := c.handleTransportErrorReconnect(ctx, req); reconnectErr != nil {
 				// Reconnection failed, return original error
 				return res, &NetconfError{
 					Operation:   req.Operation,
@@ -1538,6 +1577,7 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 					IsTransient: true,
 				}
 			}
+
 			c.logger.Info(ctx, "NETCONF reconnection successful",
 				"operation", req.Operation,
 				"sessionID", c.sessionID)
