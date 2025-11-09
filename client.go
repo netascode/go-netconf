@@ -1777,18 +1777,9 @@ func (c *Client) executeGetConfig(req *Req) (*response.NetconfResponse, error) {
 
 // executeEditConfig executes an edit-config operation.
 func (c *Client) executeEditConfig(req *Req) (*response.NetconfResponse, error) {
-	// If advanced edit-config options are set, build custom XML
-	if req.DefaultOperation != "" || req.TestOption != "" || req.ErrorOption != "" {
-		rpcXML := c.buildEditConfigXML(req)
-		return c.driver.RPC(opoptions.WithFilter(rpcXML))
-	}
-
-	// For standard edit-config, ensure config has <config> wrapper
-	configContent := req.Config
-	if !xmldot.Get(req.Config, "config").Exists() {
-		configContent = "<config>" + req.Config + "</config>"
-	}
-	return c.driver.EditConfig(req.Target, configContent)
+	// Build edit-config XML and send via RPC
+	rpcXML := c.buildEditConfigXML(req)
+	return c.driver.RPC(opoptions.WithFilter(rpcXML))
 }
 
 // executeCommit executes a commit operation with optional confirmed commit.
