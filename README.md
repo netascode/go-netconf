@@ -18,7 +18,7 @@
 - **Complete NETCONF Support**: All standard operations (Get, GetConfig, EditConfig, Lock, Commit, etc.)
 - **Robust Transport**: Built on [scrapligo](https://github.com/scrapli/scrapligo) for reliable SSH connectivity and NETCONF protocol handling
 - **Automatic Retry**: Built-in retry logic with exponential backoff for transient errors
-- **Thread-Safe**: Concurrent read operations with synchronized write operations
+- **Thread-Safe**: All operations serialized on the same client connection for reliable session management
 - **Capability Discovery**: Automatic capability negotiation and checking
 - **Transaction Support**: Full candidate datastore workflow support
 - **Structured Logging**: Configurable logging with automatic sensitive data redaction
@@ -264,7 +264,7 @@ See the [examples](examples/) directory for library usage examples:
 
 - **basic** - Client creation, GetConfig, EditConfig, response parsing
 - **candidate** - Lock/Unlock, Validate, Commit/Discard workflows
-- **concurrent** - Thread-safe concurrent operations
+- **concurrent** - Thread-safe goroutine launching with serialized operations
 - **custom-rpc** - Custom RPC operations with RPC() method
 - **filters** - SubtreeFilter, XPathFilter, NoFilter APIs
 - **logging** - Logger configuration and log levels

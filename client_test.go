@@ -5,6 +5,7 @@ package netconf
 
 import (
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"testing"
@@ -466,6 +467,16 @@ func TestClientCheckTransientError(t *testing.T) {
 		{
 			name:        "wrapped timeout error",
 			goErr:       fmt.Errorf("operation failed: %w", util.ErrTimeoutError),
+			isTransient: true,
+		},
+		{
+			name:        "EOF error",
+			goErr:       io.EOF,
+			isTransient: true,
+		},
+		{
+			name:        "wrapped EOF error",
+			goErr:       fmt.Errorf("operation get-config failed (target=running): %w", io.EOF),
 			isTransient: true,
 		},
 		{

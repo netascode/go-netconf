@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// Note: These tests verify thread-safety of concurrent goroutines calling
+// client methods. As of the serialization change, all operations (including
+// read operations like GetConfig, Get, Validate) acquire an exclusive lock,
+// so operations are serialized at the client level. These tests still verify
+// that concurrent goroutine launches are thread-safe and don't cause races.
+
 // TestConcurrentServerCapabilities tests that ServerCapabilities can be called concurrently
 func TestConcurrentServerCapabilities(t *testing.T) {
 	client := &Client{

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Serialization**: All operations now use exclusive locks instead of read locks. Operations on the same client connection are fully serialized to prevent write interleaving and simplify reconnection logic.
+
+### Fixed
+
+- **EOF Handling**: Treat `io.EOF` errors as transient and trigger automatic reconnection. This handles scenarios where network devices close idle connections (session timeouts, device restarts), improving reliability for long-running applications and idle connection scenarios.
+
 ## [0.1.0] - 2025-11-09
 
 ### Added

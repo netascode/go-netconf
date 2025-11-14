@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"regexp"
@@ -474,9 +475,9 @@ func (c *Client) Get(ctx context.Context, filter Filter, mods ...func(*Req)) (Re
 		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
 	}
 
-	// Acquire read lock before accessing driver
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	// Acquire exclusive lock to serialize all operations
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	// Defensive check: Verify driver still valid after acquiring lock
 	if err := c.requireDriver("get"); err != nil {
@@ -502,6 +503,10 @@ func (c *Client) Get(ctx context.Context, filter Filter, mods ...func(*Req)) (Re
 //
 // Valid source values: "running", "candidate", "startup"
 //
+// Thread Safety: This method serializes all operations on the same client.
+// While NETCONF supports concurrent operations via message-id multiplexing,
+// serialization prevents write interleaving and simplifies reconnection logic.
+//
 // Example:
 //
 //	ctx := context.Background()
@@ -513,9 +518,9 @@ func (c *Client) GetConfig(ctx context.Context, source string, filter Filter, mo
 		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
 	}
 
-	// Acquire read lock before accessing driver
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	// Acquire exclusive lock to serialize all operations
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	// Defensive check: Verify driver still valid after acquiring lock
 	if err := c.requireDriver("get-config"); err != nil {
@@ -877,10 +882,9 @@ func (c *Client) Validate(ctx context.Context, source string, mods ...func(*Req)
 		return Res{}, fmt.Errorf("failed to establish connection: %w", err)
 	}
 
-	// Acquire read lock - validation is read-only and doesn't modify
-	// datastore state, so concurrent validations are safe
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	// Acquire exclusive lock to serialize all operations
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	// Defensive check: Verify driver still valid after acquiring lock
 	if err := c.requireDriver("validate"); err != nil {
@@ -1283,12 +1287,26 @@ func (c *Client) checkTransientError(errs []ErrorModel, goErr error) bool {
 //   - ErrTimeoutError: socket, transport, or channel (ops) timeouts
 //   - ErrConnectionError: connection failures (host key verification, etc.)
 //   - ErrOperationError: operation timeout issues
+//   - io.EOF: connection closed by remote (device closed the session)
+//
+// EOF errors are particularly common when:
+//   - Device closes idle connections (session timeout)
+//   - Device restarts or reloads
+//   - Network connectivity issues
+//   - Concurrent session limits reached
 //
 // Returns true if the error is transient and should trigger retry.
 func isScrapliogoErrorTransient(err error) bool {
 	if err == nil {
 		return false
 	}
+
+	// Check for EOF errors (connection closed by remote)
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+
+	// Check for scrapligo error types
 	return errors.Is(err, util.ErrTimeoutError) ||
 		errors.Is(err, util.ErrConnectionError) ||
 		errors.Is(err, util.ErrOperationError)
@@ -1296,22 +1314,35 @@ func isScrapliogoErrorTransient(err error) bool {
 
 // hasTransportError checks if errors indicate transport/connection issues
 //
-// Checks NETCONF <rpc-error> elements with ErrorType="transport".
+// Checks both NETCONF <rpc-error> elements with ErrorType="transport" and
+// scrapligo Go errors that indicate broken connections (EOF).
 //
 // Transport errors require session reconnection before retry to ensure a
 // clean connection state.
 //
-// Note: Scrapligo Go errors (timeout, connection, operation) are treated as
-// transient for retry purposes but do NOT trigger reconnection. The existing
-// connection will be reused for retries.
+// EOF errors specifically trigger reconnection because they indicate the
+// device has closed the connection, and retrying on a closed connection
+// will always fail. Common causes:
+//   - Idle connection timeout on device
+//   - Device restart or reload
+//   - Session limit reached
 //
-// Returns true if transport errors are detected.
-func (c *Client) hasTransportError(errs []ErrorModel) bool {
+// Note: Other scrapligo errors (timeout, operation) are treated as
+// transient for retry purposes but do NOT trigger reconnection.
+//
+// Returns true if transport/connection errors are detected.
+func (c *Client) hasTransportError(errs []ErrorModel, goErr error) bool {
 	// Check NETCONF rpc-error elements for transport type
 	for _, rpcErr := range errs {
 		if rpcErr.ErrorType == transportErrType {
 			return true
 		}
+	}
+
+	// Check for EOF - indicates connection closed by device
+	// Must reconnect to establish new session
+	if goErr != nil && errors.Is(goErr, io.EOF) {
+		return true
 	}
 
 	return false
@@ -1522,8 +1553,8 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 		}
 
 		// Check for transport/connection errors that require reconnection
-		// Only NETCONF <rpc-error> transport errors trigger reconnection
-		hasTransportError := c.hasTransportError(res.Errors)
+		// Both NETCONF <rpc-error> transport errors and EOF errors trigger reconnection
+		hasTransportError := c.hasTransportError(res.Errors, err)
 
 		// Not transient or max retries reached
 		if !isTransient || attempt >= c.MaxRetries {

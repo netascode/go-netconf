@@ -1,10 +1,15 @@
 // Package main demonstrates concurrent operations with go-netconf.
 //
 // This example shows:
-//   - Thread-safe concurrent read operations
+//   - Thread-safe concurrent operation launching
 //   - Proper goroutine synchronization with WaitGroup
 //   - Error handling in concurrent operations
 //   - Rate-limiting with semaphores
+//
+// Note: go-netconf serializes all operations on the same client connection to
+// prevent write interleaving and simplify reconnection logic. Concurrent
+// goroutines will be serialized at the client level. For true parallelism,
+// create multiple client instances (one per goroutine).
 //
 // Usage:
 //
@@ -32,7 +37,8 @@ func main() {
 	username := getEnv("NETCONF_USERNAME", "admin")
 	password := getEnv("NETCONF_PASSWORD", "secret")
 
-	// Create client (connection established lazily, thread-safe for concurrent reads)
+	// Create client (connection established lazily, operations serialized)
+	// Note: All operations on the same client are serialized for connection safety
 	client, err := netconf.NewClient(
 		host,
 		netconf.Username(username),
@@ -44,7 +50,7 @@ func main() {
 	}
 	defer client.Close()
 
-	fmt.Printf("Client created for %s (connection opens on first operation)\n", host)
+	fmt.Printf("Client created for %s (operations will be serialized)\n", host)
 
 	ctx := context.Background()
 
@@ -63,7 +69,8 @@ func main() {
 	fmt.Println("\n=== Examples Complete ===")
 }
 
-// concurrentReads demonstrates thread-safe concurrent read operations
+// concurrentReads demonstrates thread-safe concurrent operation launching
+// Note: Operations are serialized at the client level
 func concurrentReads(ctx context.Context, client *netconf.Client) {
 	filters := []netconf.Filter{
 		netconf.SubtreeFilter("<interfaces/>"),
