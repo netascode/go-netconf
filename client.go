@@ -1348,6 +1348,24 @@ func (c *Client) hasTransportError(errs []ErrorModel, goErr error) bool {
 	return false
 }
 
+// isLockDeniedError checks if errors indicate lock-denied or in-use conditions.
+//
+// Lock-denied errors require special polling behavior with fixed 1-second intervals
+// instead of exponential backoff, and use LockReleaseTimeout instead of MaxRetries.
+//
+// This matches the NETCONF operational pattern where locks are typically released
+// within seconds to minutes, and polling is more efficient than exponential backoff.
+//
+// Returns true if any error in the list is a lock contention error.
+func (c *Client) isLockDeniedError(errs []ErrorModel) bool {
+	for _, err := range errs {
+		if err.ErrorTag == "lock-denied" || err.ErrorTag == "in-use" {
+			return true
+		}
+	}
+	return false
+}
+
 // Backoff calculates the backoff delay for retry attempt using exponential backoff with jitter
 //
 // The formula is: delay = min(minDelay * (factor ^ attempt) + jitter, maxDelay)
@@ -1501,6 +1519,10 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 		defer cancel()
 	}
 
+	// Track lock-denied polling state
+	var lockDeniedStart time.Time
+	isLockPolling := false
+
 	// Retry loop
 	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
 		// Check context before attempt
@@ -1544,20 +1566,98 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 		// Check if transient (checks both NETCONF rpc-errors and scrapligo Go errors)
 		isTransient := c.checkTransientError(res.Errors, err)
 
+		// Check if this is a lock-denied error (requires special polling behavior)
+		isLockDenied := c.isLockDeniedError(res.Errors)
+
 		// Log transient detection for debugging
 		if err != nil && isTransient {
 			c.logger.Debug(ctx, "NETCONF transient error detected",
 				"operation", req.Operation,
 				"attempt", attempt,
+				"lockDenied", isLockDenied,
 				"error", err.Error())
 		}
 
 		// Check for transport/connection errors that require reconnection
 		// Both NETCONF <rpc-error> transport errors and EOF errors trigger reconnection
+		// IMPORTANT: Handle transport errors BEFORE lock polling to ensure reconnection happens first
 		hasTransportError := c.hasTransportError(res.Errors, err)
 
-		// Not transient or max retries reached
-		if !isTransient || attempt >= c.MaxRetries {
+		// Handle transport errors with reconnection (PRIORITY: Handle before lock polling)
+		if hasTransportError {
+			// Use helper to handle lock release/reacquire around reconnection
+			if reconnectErr := c.handleTransportErrorReconnect(ctx, req); reconnectErr != nil {
+				// Reconnection failed, return original error
+				return res, &NetconfError{
+					Operation:   req.Operation,
+					Errors:      res.Errors,
+					Message:     "operation failed and reconnection failed",
+					InternalMsg: reconnectErr.Error(),
+					Retries:     attempt,
+					IsTransient: true,
+				}
+			}
+
+			c.logger.Info(ctx, "NETCONF reconnection successful",
+				"operation", req.Operation,
+				"sessionID", c.sessionID)
+
+			// Reset lock polling state after reconnection
+			isLockPolling = false
+			lockDeniedStart = time.Time{}
+			// Reconnection succeeded, continue to backoff and retry
+		}
+
+		// Handle lock-denied with special timeout-based polling (AFTER transport error handling)
+		if isLockDenied {
+			// Check context cancellation before lock timeout (defensive check)
+			select {
+			case <-ctx.Done():
+				return Res{}, fmt.Errorf("operation canceled during lock polling: %w", ctx.Err())
+			default:
+			}
+
+			// Start lock polling timer on first lock-denied
+			if !isLockPolling {
+				isLockPolling = true
+				lockDeniedStart = time.Now()
+				c.logger.Info(ctx, "NETCONF waiting for lock release",
+					"operation", req.Operation,
+					"target", req.Target,
+					"timeout", c.LockReleaseTimeout.String())
+			}
+
+			// Check if lock polling has exceeded timeout - return ErrLockReleaseTimeout
+			lockPollingElapsed := time.Since(lockDeniedStart)
+			if lockPollingElapsed >= c.LockReleaseTimeout {
+				// Lock timeout exceeded, return error
+				c.logger.Error(ctx, "NETCONF lock release timeout exceeded",
+					"operation", req.Operation,
+					"elapsed", lockPollingElapsed.String(),
+					"timeout", c.LockReleaseTimeout.String())
+
+				// Log each RPC error for context
+				for i, rpcErr := range res.Errors {
+					c.logger.Error(ctx, "NETCONF RPC error",
+						"index", i,
+						"errorType", rpcErr.ErrorType,
+						"errorTag", rpcErr.ErrorTag,
+						"errorMessage", rpcErr.ErrorMessage)
+				}
+
+				return res, &NetconfError{
+					Operation:   req.Operation,
+					Errors:      res.Errors,
+					Message:     ErrLockReleaseTimeout.Error(),
+					InternalMsg: fmt.Sprintf("waited %s for lock release", lockPollingElapsed),
+					Retries:     attempt,
+					IsTransient: true,
+				}
+			}
+		}
+
+		// Not transient or (non-lock transient and max retries reached)
+		if !isTransient || (!isLockDenied && attempt >= c.MaxRetries) {
 			// Log operation failure with error details
 			if err != nil {
 				c.logger.Error(ctx, "NETCONF operation failed",
@@ -1596,33 +1696,21 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 			return res, fmt.Errorf("operation %s failed after %d retries: %w", req.Operation, attempt, err)
 		}
 
-		// Handle transport errors with reconnection
-		if hasTransportError {
-			// Use helper to handle lock release/reacquire around reconnection
-			if reconnectErr := c.handleTransportErrorReconnect(ctx, req); reconnectErr != nil {
-				// Reconnection failed, return original error
-				return res, &NetconfError{
-					Operation:   req.Operation,
-					Errors:      res.Errors,
-					Message:     "operation failed and reconnection failed",
-					InternalMsg: reconnectErr.Error(),
-					Retries:     attempt,
-					IsTransient: true,
-				}
-			}
-
-			c.logger.Info(ctx, "NETCONF reconnection successful",
-				"operation", req.Operation,
-				"sessionID", c.sessionID)
-			// Reconnection succeeded, continue to backoff and retry
+		// Apply backoff before next retry
+		var delay time.Duration
+		if isLockDenied {
+			// Use fixed 1-second interval for lock polling
+			delay = 1 * time.Second
+		} else {
+			// Use exponential backoff for other transient errors
+			delay = c.Backoff(attempt)
 		}
 
-		// Apply backoff before next retry
-		delay := c.Backoff(attempt)
 		c.logger.Debug(ctx, "NETCONF retry backoff",
 			"operation", req.Operation,
 			"attempt", attempt,
-			"delay", delay.String())
+			"delay", delay.String(),
+			"lockPolling", isLockPolling)
 
 		select {
 		case <-ctx.Done():

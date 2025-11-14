@@ -374,3 +374,69 @@ func TestErrorModelRFC6241Fields(t *testing.T) {
 		}
 	}
 }
+
+// TestIsLockDeniedError tests the isLockDeniedError helper method
+func TestIsLockDeniedError(t *testing.T) {
+	tests := []struct {
+		name          string
+		errors        []ErrorModel
+		expectLockDenied bool
+	}{
+		{
+			name: "lock-denied error",
+			errors: []ErrorModel{
+				{ErrorTag: "lock-denied"},
+			},
+			expectLockDenied: true,
+		},
+		{
+			name: "in-use error",
+			errors: []ErrorModel{
+				{ErrorTag: "in-use"},
+			},
+			expectLockDenied: true,
+		},
+		{
+			name: "lock-denied with other errors",
+			errors: []ErrorModel{
+				{ErrorTag: "invalid-value"},
+				{ErrorTag: "lock-denied"},
+			},
+			expectLockDenied: true,
+		},
+		{
+			name: "non-lock error",
+			errors: []ErrorModel{
+				{ErrorTag: "invalid-value"},
+			},
+			expectLockDenied: false,
+		},
+		{
+			name: "transport error",
+			errors: []ErrorModel{
+				{ErrorType: "transport"},
+			},
+			expectLockDenied: false,
+		},
+		{
+			name:          "empty errors",
+			errors:        []ErrorModel{},
+			expectLockDenied: false,
+		},
+		{
+			name:          "nil errors",
+			errors:        nil,
+			expectLockDenied: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &Client{}
+			result := client.isLockDeniedError(tt.errors)
+			if result != tt.expectLockDenied {
+				t.Errorf("expected isLockDeniedError %v, got %v", tt.expectLockDenied, result)
+			}
+		})
+	}
+}
