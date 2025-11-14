@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2025-11-14
+
 ### Added
 
 - **Lock-Denied Polling**: Implemented intelligent lock polling for `lock-denied` and `in-use` errors. Lock operations now use fixed 1-second polling intervals (instead of exponential backoff) and respect `LockReleaseTimeout` (default 120s) instead of `MaxRetries`. This provides much better lock acquisition behavior when datastores are temporarily locked by other sessions.
@@ -31,5 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/netascode/go-netconf/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/netascode/go-netconf/releases/tag/v0.1.0
