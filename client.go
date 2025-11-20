@@ -1566,8 +1566,13 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 	var lockDeniedStart time.Time
 	isLockPolling := false
 
-	// Retry loop
-	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
+	// Retry loop - unbounded to allow lock-denied polling until LockReleaseTimeout
+	// Safety mechanisms prevent infinite loops:
+	// 1. Lock operations: time-bound by LockReleaseTimeout check and context cancellation
+	// 2. Non-lock operations: attempt-bound by MaxRetries check in exit condition below
+	// 3. Non-transient errors: exit immediately via exit condition
+	// 4. Context cancellation: checked before each attempt and during backoff
+	for attempt := 0; ; attempt++ {
 		// Check context before attempt
 		select {
 		case <-ctx.Done():
@@ -1763,8 +1768,8 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 		}
 	}
 
-	// Should never reach here, but return error for safety
-	return Res{}, fmt.Errorf("operation %s: exceeded maximum retries (%d)", req.Operation, c.MaxRetries)
+	// Unreachable: All exit paths return earlier via error conditions or context cancellation
+	panic(fmt.Sprintf("BUG: retry loop exited without return for operation %s (attempt %d)", req.Operation, 0))
 }
 
 // executeRPC executes a single RPC operation without retry logic

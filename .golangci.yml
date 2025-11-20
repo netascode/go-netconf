@@ -40,6 +40,7 @@ linters:
         - shadow         # Can be noisy in some cases
         - fieldalignment # Field alignment is not critical for readability
         - unusedwrite    # Test struct writes are for documentation
+        - unreachable    # Intentional panic as safety net after infinite loop
 
     gocyclo:
       min-complexity: 30  # Network protocol code has higher complexity

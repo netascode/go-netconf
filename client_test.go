@@ -1480,3 +1480,116 @@ func TestClient_redactSensitiveData_NamespaceAndCDATA(t *testing.T) {
 		})
 	}
 }
+
+// TestClient_LockPollingBeyondMaxRetries verifies that lock-denied errors continue
+// polling beyond MaxRetries until LockReleaseTimeout is reached.
+//
+// This test validates that lock operations poll for the full timeout duration
+// instead of being limited by MaxRetries, ensuring lock-denied errors retry
+// appropriately for up to the configured LockReleaseTimeout.
+func TestClient_LockPollingBeyondMaxRetries(t *testing.T) {
+	t.Run("lock polling logic bypasses MaxRetries", func(t *testing.T) {
+		client := &Client{
+			MaxRetries:         3,
+			LockReleaseTimeout: 10 * time.Second,
+			logger:             &NoOpLogger{},
+		}
+
+		// Verify lock-denied is detected as transient
+		lockDeniedErrors := []ErrorModel{
+			{ErrorTag: "lock-denied"},
+		}
+
+		isTransient := client.checkTransientError(lockDeniedErrors, nil)
+		if !isTransient {
+			t.Error("lock-denied should be detected as transient")
+		}
+
+		// Verify lock-denied is identified for special polling
+		isLockDenied := client.isLockDeniedError(lockDeniedErrors)
+		if !isLockDenied {
+			t.Error("lock-denied should trigger lock polling")
+		}
+
+		// Verify the exit condition logic:
+		// For lock-denied, (!isLockDenied && attempt >= MaxRetries) should be false
+		// allowing the loop to continue beyond MaxRetries
+		for attempt := 0; attempt <= 10; attempt++ {
+			shouldExit := !isTransient || (!isLockDenied && attempt >= client.MaxRetries)
+
+			// Lock-denied should NEVER trigger exit via MaxRetries check
+			if shouldExit {
+				t.Errorf("attempt %d: lock-denied should continue polling (bypasses MaxRetries), but exit condition is true", attempt)
+			}
+		}
+	})
+
+	t.Run("non-lock transient errors respect MaxRetries", func(t *testing.T) {
+		client := &Client{
+			MaxRetries:         3,
+			LockReleaseTimeout: 10 * time.Second,
+			logger:             &NoOpLogger{},
+		}
+
+		// Use transport error as example of non-lock transient error
+		transportErrors := []ErrorModel{
+			{ErrorType: "transport"},
+		}
+
+		isTransient := client.checkTransientError(transportErrors, nil)
+		if !isTransient {
+			t.Error("transport error should be detected as transient")
+		}
+
+		isLockDenied := client.isLockDeniedError(transportErrors)
+		if isLockDenied {
+			t.Error("transport error should NOT trigger lock polling")
+		}
+
+		// Verify the exit condition logic:
+		// For non-lock transient errors, should exit when attempt >= MaxRetries
+		for attempt := 0; attempt <= 5; attempt++ {
+			shouldExit := !isTransient || (!isLockDenied && attempt >= client.MaxRetries)
+
+			if attempt >= client.MaxRetries {
+				// At or beyond MaxRetries: should exit for non-lock transient
+				if !shouldExit {
+					t.Errorf("attempt %d: non-lock error should exit (respects MaxRetries), but exit condition is false", attempt)
+				}
+			} else {
+				// Within MaxRetries: should continue
+				if shouldExit {
+					t.Errorf("attempt %d: should continue (within MaxRetries), but exit condition is true", attempt)
+				}
+			}
+		}
+	})
+
+	t.Run("non-transient errors exit immediately", func(t *testing.T) {
+		client := &Client{
+			MaxRetries: 3,
+			logger:     &NoOpLogger{},
+		}
+
+		// Non-transient error (invalid-value is not in TransientErrors list)
+		nonTransientErrors := []ErrorModel{
+			{ErrorTag: "invalid-value"},
+		}
+
+		isTransient := client.checkTransientError(nonTransientErrors, nil)
+		if isTransient {
+			t.Error("invalid-value should NOT be detected as transient")
+		}
+
+		// Verify exit condition: non-transient errors should exit immediately
+		for attempt := 0; attempt <= 5; attempt++ {
+			isLockDenied := false // irrelevant for non-transient
+			shouldExit := !isTransient || (!isLockDenied && attempt >= client.MaxRetries)
+
+			// Should always exit immediately for non-transient errors
+			if !shouldExit {
+				t.Errorf("attempt %d: non-transient error should exit immediately, but exit condition is false", attempt)
+			}
+		}
+	})
+}

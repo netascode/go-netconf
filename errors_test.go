@@ -378,8 +378,8 @@ func TestErrorModelRFC6241Fields(t *testing.T) {
 // TestIsLockDeniedError tests the isLockDeniedError helper method
 func TestIsLockDeniedError(t *testing.T) {
 	tests := []struct {
-		name          string
-		errors        []ErrorModel
+		name             string
+		errors           []ErrorModel
 		expectLockDenied bool
 	}{
 		{
@@ -419,13 +419,13 @@ func TestIsLockDeniedError(t *testing.T) {
 			expectLockDenied: false,
 		},
 		{
-			name:          "empty errors",
-			errors:        []ErrorModel{},
+			name:             "empty errors",
+			errors:           []ErrorModel{},
 			expectLockDenied: false,
 		},
 		{
-			name:          "nil errors",
-			errors:        nil,
+			name:             "nil errors",
+			errors:           nil,
 			expectLockDenied: false,
 		},
 	}
