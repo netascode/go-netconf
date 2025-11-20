@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Close Timeout Protection**: Added timeout protection to `Close()` and `reconnect()` methods to prevent indefinite blocking when using scrapligo v1.3.3. The library now uses `ConnectTimeout` (default 10s) to detect and handle the scrapligo bug where `driver.Close()` can block forever due to channel deadlock. This prevents application-wide deadlocks in the terraform-provider-iosxe and other users of the library.
+
 ## [0.5.0] - 2025-11-14
 
 ### Added

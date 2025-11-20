@@ -407,6 +407,9 @@ func (c *Client) requireDriver(operation string) error {
 // This sends a close-session RPC to the server and closes the underlying
 // transport connection. The driver reference is cleared before closing to
 // prevent double-close attempts if Close() is called multiple times.
+//
+// Timeout Protection: Uses ConnectTimeout to prevent indefinite blocking
+// due to scrapligo v1.3.3 bug where Close() can block forever.
 func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -420,9 +423,26 @@ func (c *Client) Close() error {
 	driver := c.driver
 	c.driver = nil
 
-	err := driver.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close NETCONF session: %w", err)
+	// Timeout protection for driver.Close() (scrapligo v1.3.3 bug workaround)
+	// The bug causes Close() to block indefinitely when the read goroutine is stuck
+	ctx, cancel := context.WithTimeout(context.Background(), c.ConnectTimeout)
+	defer cancel()
+
+	closeDone := make(chan error, 1) // Buffered to prevent goroutine leak
+	go func() {
+		closeDone <- driver.Close()
+	}()
+
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			return fmt.Errorf("failed to close NETCONF session: %w", err)
+		}
+	case <-ctx.Done():
+		c.logger.Warn(context.Background(), "NETCONF driver close timeout, connection may leak",
+			"host", c.Host,
+			"timeout", c.ConnectTimeout)
+		return fmt.Errorf("failed to close NETCONF session: timeout after %v", c.ConnectTimeout)
 	}
 
 	c.logger.Info(context.Background(), "NETCONF connection closed",
@@ -1404,6 +1424,10 @@ func (c *Client) Backoff(attempt int) time.Duration {
 // re-negotiating capabilities. Used internally when transport errors are
 // detected during retry logic.
 //
+// Timeout Protection: The close operation uses ConnectTimeout to prevent
+// indefinite blocking. Close errors are logged but do not prevent reconnection
+// (connection may already be broken).
+//
 // PRECONDITION: Caller must NOT hold any locks (acquires write lock internally)
 //
 // Returns an error if reconnection fails.
@@ -1415,10 +1439,29 @@ func (c *Client) reconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Close existing connection (ignore errors - connection may already be broken)
+	// Close existing connection with timeout protection (scrapligo v1.3.3 bug workaround)
+	// Errors are ignored since connection may already be broken
 	if c.driver != nil {
-		_ = c.driver.Close() //nolint:errcheck // Explicitly ignore error (connection likely already broken)
+		driver := c.driver
 		c.driver = nil
+
+		ctx, cancel := context.WithTimeout(context.Background(), c.ConnectTimeout)
+		defer cancel()
+
+		closeDone := make(chan error, 1) // Buffered to prevent goroutine leak
+		go func() {
+			closeDone <- driver.Close()
+		}()
+
+		select {
+		case <-closeDone:
+			// Close completed, ignore any errors (connection likely broken)
+		case <-ctx.Done():
+			c.logger.Warn(context.Background(), "NETCONF driver close timeout during reconnect",
+				"host", c.Host,
+				"timeout", c.ConnectTimeout)
+			// Continue with reconnection even if close timed out
+		}
 	}
 
 	// Reuse connect() method for DRY principle
