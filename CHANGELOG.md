@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2025-11-21
+
 ### Fixed
 
 - **Lock Polling Loop Bound**: Fixed retry loop to allow lock-denied polling to reach `LockReleaseTimeout` (default 120s). Previously, the loop was bounded by `MaxRetries` causing lock operations to fail after 3-4 attempts (~4 seconds) even with a 120-second timeout configured. Lock operations now correctly poll for the full timeout duration while non-lock operations still respect `MaxRetries`.
@@ -38,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/netascode/go-netconf/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/netascode/go-netconf/compare/v0.1.0...v0.5.0
 [0.1.0]: https://github.com/netascode/go-netconf/releases/tag/v0.1.0
