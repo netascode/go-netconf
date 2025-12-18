@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Array operations on Result objects**: Fixed bug where array operations (`#`, `#.field`, indexed access) failed when called via `Result.Get()` on Element results containing multiple sibling elements (xmldot v0.5.1 update).
+
 ## [0.5.1] - 2025-11-21
 
 ### Fixed
