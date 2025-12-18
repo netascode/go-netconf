@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2025-12-18
+
 ### Fixed
 
 - **Array operations on Result objects**: Fixed bug where array operations (`#`, `#.field`, indexed access) failed when called via `Result.Get()` on Element results containing multiple sibling elements (xmldot v0.5.1 update).
@@ -44,7 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/netascode/go-netconf/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/netascode/go-netconf/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/netascode/go-netconf/compare/v0.1.0...v0.5.0
 [0.1.0]: https://github.com/netascode/go-netconf/releases/tag/v0.1.0
