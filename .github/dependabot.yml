@@ -16,7 +16,7 @@ updates:
     labels:
       - "dependencies"
     commit-message:
-      prefix: "build(deps)"
+      prefix: "build"
       include: "scope"
 
   # GitHub Actions dependencies
@@ -31,5 +31,5 @@ updates:
     labels:
       - "dependencies"
     commit-message:
-      prefix: "ci(deps)"
+      prefix: "ci"
       include: "scope"
