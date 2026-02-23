@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/netascode/xmldot v0.5.1
-	github.com/scrapli/scrapligo v1.3.3
+	github.com/scrapli/scrapligo v1.4.0
 )
 
 require (
