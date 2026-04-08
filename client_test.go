@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/scrapli/scrapligo/response"
 	"github.com/scrapli/scrapligo/util"
 )
 
@@ -1590,6 +1591,145 @@ func TestClient_LockPollingBeyondMaxRetries(t *testing.T) {
 			if !shouldExit {
 				t.Errorf("attempt %d: non-transient error should exit immediately, but exit condition is false", attempt)
 			}
+		}
+	})
+}
+
+func TestResponsePreprocessor(t *testing.T) {
+	t.Run("preprocessor transforms XML before parsing", func(t *testing.T) {
+		// Simulate a NETCONF response with unescaped angle brackets in banner text.
+		// Without preprocessing, xmldot would treat "<contact:" as an XML tag.
+		rawXML := `<?xml version="1.0"?>
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1">
+  <data>
+    <native>
+      <banner>
+        <login>
+          <banner>==> LOGIN <==</banner>
+        </login>
+      </banner>
+    </native>
+  </data>
+</rpc-reply>`
+
+		// Preprocessor escapes angle brackets inside <banner> text
+		preprocessor := func(xml string) string {
+			return strings.ReplaceAll(
+				strings.ReplaceAll(xml, "==>", "==&gt;"),
+				"<==", "&lt;==",
+			)
+		}
+
+		client := &Client{
+			logger:               &NoOpLogger{},
+			ResponsePreprocessor: preprocessor,
+		}
+
+		res, err := client.parseResponse(&response.NetconfResponse{
+			Result: rawXML,
+		})
+		if err != nil {
+			t.Fatalf("parseResponse returned error: %v", err)
+		}
+
+		// The preprocessed XML should parse correctly and preserve the angle brackets
+		loginBanner := res.Res.Get("data.native.banner.login.banner").String()
+		if !strings.Contains(loginBanner, "==>") {
+			t.Errorf("expected login banner to contain '==>', got %q", loginBanner)
+		}
+		if !strings.Contains(loginBanner, "<==") {
+			t.Errorf("expected login banner to contain '<==', got %q", loginBanner)
+		}
+	})
+
+	t.Run("nil preprocessor is a no-op", func(t *testing.T) {
+		rawXML := `<?xml version="1.0"?>
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1">
+  <data>
+    <native>
+      <banner>
+        <motd>
+          <banner>Simple banner</banner>
+        </motd>
+      </banner>
+    </native>
+  </data>
+</rpc-reply>`
+
+		client := &Client{
+			logger:               &NoOpLogger{},
+			ResponsePreprocessor: nil,
+		}
+
+		res, err := client.parseResponse(&response.NetconfResponse{
+			Result: rawXML,
+		})
+		if err != nil {
+			t.Fatalf("parseResponse returned error: %v", err)
+		}
+
+		motdBanner := res.Res.Get("data.native.banner.motd.banner").String()
+		if motdBanner != "Simple banner" {
+			t.Errorf("expected 'Simple banner', got %q", motdBanner)
+		}
+	})
+
+	t.Run("preprocessor applied to ok response", func(t *testing.T) {
+		called := false
+		preprocessor := func(xml string) string {
+			called = true
+			return xml
+		}
+
+		client := &Client{
+			logger:               &NoOpLogger{},
+			ResponsePreprocessor: preprocessor,
+		}
+
+		res, err := client.parseResponse(&response.NetconfResponse{
+			Result: `<?xml version="1.0"?>
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1">
+  <ok/>
+</rpc-reply>`,
+		})
+		if err != nil {
+			t.Fatalf("parseResponse returned error: %v", err)
+		}
+		if !called {
+			t.Error("expected preprocessor to be called")
+		}
+		if !res.OK {
+			t.Error("expected OK to be true")
+		}
+	})
+
+	t.Run("preprocessor applied to error response", func(t *testing.T) {
+		client := &Client{
+			logger: &NoOpLogger{},
+			ResponsePreprocessor: func(xml string) string {
+				return xml // pass-through
+			},
+		}
+
+		res, err := client.parseResponse(&response.NetconfResponse{
+			Result: `<?xml version="1.0"?>
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1">
+  <rpc-error>
+    <error-type>application</error-type>
+    <error-tag>operation-failed</error-tag>
+    <error-severity>error</error-severity>
+    <error-message>Something went wrong</error-message>
+  </rpc-error>
+</rpc-reply>`,
+		})
+		if err != nil {
+			t.Fatalf("parseResponse returned error: %v", err)
+		}
+		if len(res.Errors) != 1 {
+			t.Fatalf("expected 1 error, got %d", len(res.Errors))
+		}
+		if res.Errors[0].ErrorMessage != "Something went wrong" {
+			t.Errorf("expected error message 'Something went wrong', got %q", res.Errors[0].ErrorMessage)
 		}
 	})
 }

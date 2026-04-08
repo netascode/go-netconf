@@ -167,6 +167,12 @@ type Client struct {
 	logger            Logger
 	prettyPrintLogs   bool
 	redactionPatterns []*regexp.Regexp
+
+	// ResponsePreprocessor is an optional function that transforms the raw XML
+	// response string before it is parsed by xmldot. This allows callers to
+	// sanitize malformed XML (e.g., unescaped angle brackets in banner text)
+	// before the parser sees it.
+	ResponsePreprocessor func(string) string
 }
 
 // NewClient creates a new NETCONF client with the specified host and options
@@ -1975,18 +1981,24 @@ func (c *Client) executeCommit(req *Req) (*response.NetconfResponse, error) {
 // Returns a Res struct with parsed data or an error if parsing fails.
 func (c *Client) parseResponse(scrapligoRes *response.NetconfResponse) (Res, error) {
 
+	// Apply response preprocessor if configured (e.g., to escape malformed XML)
+	rawXML := scrapligoRes.Result
+	if c.ResponsePreprocessor != nil {
+		rawXML = c.ResponsePreprocessor(rawXML)
+	}
+
 	// Parse XML with xmldot
-	result := xmldot.Get(scrapligoRes.Result, "rpc-reply")
+	result := xmldot.Get(rawXML, "rpc-reply")
 
 	// Check for <ok/> response
-	okResult := xmldot.Get(scrapligoRes.Result, "rpc-reply.ok")
+	okResult := xmldot.Get(rawXML, "rpc-reply.ok")
 	ok := okResult.Exists()
 
 	// Check for <rpc-error> elements
-	errors := c.parseRPCErrors(scrapligoRes.Result)
+	errors := c.parseRPCErrors(rawXML)
 
 	// Extract message-id
-	msgID := xmldot.Get(scrapligoRes.Result, "rpc-reply@message-id").String()
+	msgID := xmldot.Get(rawXML, "rpc-reply@message-id").String()
 
 	return Res{
 		Res:       result,
