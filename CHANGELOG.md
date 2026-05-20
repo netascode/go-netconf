@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-20
+
 ### Added
 
 - **Response Preprocessor**: Added `WithResponsePreprocessor` option to transform raw NETCONF XML responses before parsing. Allows callers to sanitize malformed XML from devices that don't properly escape special characters (e.g., unescaped angle brackets in IOS-XE banner text).
@@ -50,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/netascode/go-netconf/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/netascode/go-netconf/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/netascode/go-netconf/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/netascode/go-netconf/compare/v0.1.0...v0.5.0
