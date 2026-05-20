@@ -179,6 +179,24 @@ func WithPrettyPrintLogs(enabled bool) func(*Client) {
 	}
 }
 
+// WithResponsePreprocessor sets a function that transforms the raw XML response
+// string before it is parsed. This allows callers to sanitize malformed XML
+// from devices that don't properly escape special characters.
+//
+// The preprocessor receives the raw XML response and must return valid XML.
+//
+// Example (escape unescaped angle brackets in banner text):
+//
+//	client, _ := netconf.NewClient("192.168.1.1",
+//	    netconf.Username("admin"),
+//	    netconf.Password("secret"),
+//	    netconf.WithResponsePreprocessor(myBannerSanitizer))
+func WithResponsePreprocessor(fn func(string) string) func(*Client) {
+	return func(c *Client) {
+		c.ResponsePreprocessor = fn
+	}
+}
+
 // Request modifiers for individual operations
 
 // Timeout returns a request modifier that sets a custom timeout for the operation
