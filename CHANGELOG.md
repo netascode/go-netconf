@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Response Preprocessor**: Added `WithResponsePreprocessor` option to transform raw NETCONF XML responses before parsing. Allows callers to sanitize malformed XML from devices that don't properly escape special characters (e.g., unescaped angle brackets in IOS-XE banner text).
+
 ## [0.5.2] - 2025-12-18
 
 ### Fixed

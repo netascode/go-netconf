@@ -1612,7 +1612,7 @@ func TestResponsePreprocessor(t *testing.T) {
   </data>
 </rpc-reply>`
 
-		// Preprocessor escapes angle brackets inside <banner> text
+		// Preprocessor escapes "==>" and "<==" sequences globally
 		preprocessor := func(xml string) string {
 			return strings.ReplaceAll(
 				strings.ReplaceAll(xml, "==>", "==&gt;"),
@@ -1622,7 +1622,7 @@ func TestResponsePreprocessor(t *testing.T) {
 
 		client := &Client{
 			logger:               &NoOpLogger{},
-			ResponsePreprocessor: preprocessor,
+			responsePreprocessor: preprocessor,
 		}
 
 		res, err := client.parseResponse(&response.NetconfResponse{
@@ -1632,7 +1632,6 @@ func TestResponsePreprocessor(t *testing.T) {
 			t.Fatalf("parseResponse returned error: %v", err)
 		}
 
-		// The preprocessed XML should parse correctly and preserve the angle brackets
 		loginBanner := res.Res.Get("data.native.banner.login.banner").String()
 		if !strings.Contains(loginBanner, "==>") {
 			t.Errorf("expected login banner to contain '==>', got %q", loginBanner)
@@ -1657,8 +1656,7 @@ func TestResponsePreprocessor(t *testing.T) {
 </rpc-reply>`
 
 		client := &Client{
-			logger:               &NoOpLogger{},
-			ResponsePreprocessor: nil,
+			logger: &NoOpLogger{},
 		}
 
 		res, err := client.parseResponse(&response.NetconfResponse{
@@ -1683,7 +1681,7 @@ func TestResponsePreprocessor(t *testing.T) {
 
 		client := &Client{
 			logger:               &NoOpLogger{},
-			ResponsePreprocessor: preprocessor,
+			responsePreprocessor: preprocessor,
 		}
 
 		res, err := client.parseResponse(&response.NetconfResponse{
@@ -1706,8 +1704,8 @@ func TestResponsePreprocessor(t *testing.T) {
 	t.Run("preprocessor applied to error response", func(t *testing.T) {
 		client := &Client{
 			logger: &NoOpLogger{},
-			ResponsePreprocessor: func(xml string) string {
-				return xml // pass-through
+			responsePreprocessor: func(xml string) string {
+				return xml
 			},
 		}
 

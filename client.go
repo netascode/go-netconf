@@ -167,12 +167,7 @@ type Client struct {
 	logger            Logger
 	prettyPrintLogs   bool
 	redactionPatterns []*regexp.Regexp
-
-	// ResponsePreprocessor is an optional function that transforms the raw XML
-	// response string before it is parsed by xmldot. This allows callers to
-	// sanitize malformed XML (e.g., unescaped angle brackets in banner text)
-	// before the parser sees it.
-	ResponsePreprocessor func(string) string
+	responsePreprocessor func(string) string
 }
 
 // NewClient creates a new NETCONF client with the specified host and options
@@ -1983,8 +1978,8 @@ func (c *Client) parseResponse(scrapligoRes *response.NetconfResponse) (Res, err
 
 	// Apply response preprocessor if configured (e.g., to escape malformed XML)
 	rawXML := scrapligoRes.Result
-	if c.ResponsePreprocessor != nil {
-		rawXML = c.ResponsePreprocessor(rawXML)
+	if c.responsePreprocessor != nil {
+		rawXML = c.responsePreprocessor(rawXML)
 	}
 
 	// Parse XML with xmldot

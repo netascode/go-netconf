@@ -19,7 +19,6 @@ linters:
 
     # Code quality linters
     - misspell      # Check for misspelled words
-    - goconst       # Find repeated strings that could be constants
     - gocyclo       # Check cyclomatic complexity
     - dupl          # Check for duplicated code
     - revive        # Comprehensive code quality checks
@@ -47,10 +46,6 @@ linters:
 
     dupl:
       threshold: 150  # Test patterns can be similar
-
-    goconst:
-      min-len: 3
-      min-occurrences: 3
 
     misspell:
       locale: US

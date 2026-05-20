@@ -193,7 +193,7 @@ func WithPrettyPrintLogs(enabled bool) func(*Client) {
 //	    netconf.WithResponsePreprocessor(myBannerSanitizer))
 func WithResponsePreprocessor(fn func(string) string) func(*Client) {
 	return func(c *Client) {
-		c.ResponsePreprocessor = fn
+		c.responsePreprocessor = fn
 	}
 }
 
