@@ -31,7 +31,7 @@ go get github.com/netascode/go-netconf
 
 ## Requirements
 
-- Go 1.24 or later
+- Go 1.25 or later
 - Network device with NETCONF support
 
 ## Quick Start
