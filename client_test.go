@@ -6,12 +6,14 @@ package netconf
 import (
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/scrapli/scrapligo/response"
+	"github.com/scrapli/scrapligo/transport"
 	"github.com/scrapli/scrapligo/util"
 )
 
@@ -87,6 +89,49 @@ func TestClientDefaultConfiguration(t *testing.T) {
 			t.Errorf("expected SSHKeyPath '/path/to/key', got %s", client.SSHKeyPath)
 		}
 	})
+}
+
+func TestBuildScrapligoOptionsUsesStandardUserKnownHosts(t *testing.T) {
+	home := t.TempDir()
+	sshDir := home + "/.ssh"
+	if err := os.Mkdir(sshDir, 0o700); err != nil {
+		t.Fatalf("failed to create .ssh directory: %v", err)
+	}
+	knownHostsFile, err := os.Create(sshDir + "/known_hosts")
+	if err != nil {
+		t.Fatalf("failed to create known_hosts file: %v", err)
+	}
+	if err := knownHostsFile.Close(); err != nil {
+		t.Fatalf("failed to close known_hosts file: %v", err)
+	}
+
+	t.Setenv("HOME", home)
+	client := &Client{}
+	sshArgs, err := transport.NewSSHArgs(client.buildScrapligoOptions()...)
+	if err != nil {
+		t.Fatalf("failed to build SSH arguments: %v", err)
+	}
+	if !sshArgs.StrictKey {
+		t.Error("expected strict host key verification to remain enabled")
+	}
+	if sshArgs.KnownHostsFile != knownHostsFile.Name() {
+		t.Errorf("expected known_hosts file %q, got %q", knownHostsFile.Name(), sshArgs.KnownHostsFile)
+	}
+}
+
+func TestBuildScrapligoOptionsInsecureSkipsKnownHostsLookup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	client := &Client{InsecureSkipVerify: true}
+	sshArgs, err := transport.NewSSHArgs(client.buildScrapligoOptions()...)
+	if err != nil {
+		t.Fatalf("failed to build SSH arguments: %v", err)
+	}
+	if sshArgs.StrictKey {
+		t.Error("expected strict host key verification to be disabled")
+	}
+	if sshArgs.KnownHostsFile != "" {
+		t.Errorf("expected known_hosts file to be ignored in insecure mode, got %q", sshArgs.KnownHostsFile)
+	}
 }
 
 func TestClientCapabilities(t *testing.T) {
