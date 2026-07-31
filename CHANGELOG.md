@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Strict SSH host-key verification**: Resolve the standard user or system
+  `known_hosts` file when strict verification is enabled. This keeps secure
+  verification usable by default instead of failing because no file was passed
+  to the underlying scrapligo transport.
+
 ## [0.6.0] - 2026-05-20
 
 ### Added
