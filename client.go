@@ -1763,6 +1763,9 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 			// Continue to next retry
 		}
 	}
+
+	// Unreachable: All exit paths return earlier via error conditions or context cancellation
+	panic(fmt.Sprintf("BUG: retry loop exited without return for operation %s (attempt %d)", req.Operation, 0))
 }
 
 // executeRPC executes a single RPC operation without retry logic

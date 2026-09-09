@@ -97,7 +97,7 @@ func TestBuildScrapligoOptionsUsesStandardUserKnownHosts(t *testing.T) {
 	if err := os.Mkdir(sshDir, 0o700); err != nil {
 		t.Fatalf("failed to create .ssh directory: %v", err)
 	}
-	knownHostsFile, err := os.Create(sshDir + "/known_hosts")
+	knownHostsFile, err := os.Create(sshDir + "/known_hosts") // #nosec G304 -- test-controlled path under t.TempDir()
 	if err != nil {
 		t.Fatalf("failed to create known_hosts file: %v", err)
 	}
