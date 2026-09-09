@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-09
+
 ### Fixed
 
 - **Strict SSH host-key verification**: Resolve the standard user or system `known_hosts` file when strict verification is enabled. This keeps secure verification usable by default instead of failing because no file was passed to the underlying scrapligo transport.
@@ -57,7 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/netascode/go-netconf/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/netascode/go-netconf/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/netascode/go-netconf/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/netascode/go-netconf/compare/v0.5.0...v0.5.1
