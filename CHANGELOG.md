@@ -9,10 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Strict SSH host-key verification**: Resolve the standard user or system
-  `known_hosts` file when strict verification is enabled. This keeps secure
-  verification usable by default instead of failing because no file was passed
-  to the underlying scrapligo transport.
+- **Strict SSH host-key verification**: Resolve the standard user or system `known_hosts` file when strict verification is enabled. This keeps secure verification usable by default instead of failing because no file was passed to the underlying scrapligo transport.
+- **Reconnect Lock Handling**: Fixed `sync: RUnlock of unlocked RWMutex` fatal error on transport errors during `Get`, `GetConfig`, or `Validate`, caused by stale `RLock` handling left over from before operations were serialized with `Lock` in 0.5.0.
 
 ## [0.6.0] - 2026-05-20
 

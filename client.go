@@ -1483,33 +1483,25 @@ func (c *Client) handleTransportErrorReconnect(ctx context.Context, req *Req) er
 	c.logger.Info(ctx, "NETCONF transport error detected, reconnecting",
 		"operation", req.Operation)
 
-	// Determine lock type held by caller based on operation type
-	// Read operations: get, get-config, validate (hold RLock)
-	// Write operations: edit-config, copy-config, delete-config, commit, discard, rpc (hold Lock)
-	// Lock operations: lock, unlock (hold no lock)
-	isReadOp := req.Operation == opGet || req.Operation == opGetConfig || req.Operation == opValidate
-	isWriteOp := req.Operation == opEditConfig || req.Operation == opCopyConfig ||
-		req.Operation == opDeleteConfig || req.Operation == opCommit ||
-		req.Operation == opDiscard || req.Operation == opRPC
+	// All operations (get, get-config, validate, edit-config, copy-config,
+	// delete-config, commit, discard, rpc) acquire c.mu.Lock() (the exclusive
+	// write lock) before calling sendRPC - see Get, GetConfig, Validate, etc.
+	// None of them acquire RLock, so the lock held here is always the write
+	// lock. Lock/Unlock operations don't hold c.mu, so nothing to release.
+	isLockOp := req.Operation == opLock || req.Operation == opUnlock
 
 	// Release lock before reconnect (reconnect acquires its own write lock)
-	if isReadOp {
-		c.mu.RUnlock()
-	} else if isWriteOp {
+	if !isLockOp {
 		c.mu.Unlock()
 	}
-	// Lock/Unlock operations don't hold c.mu, so nothing to release
 
 	// Attempt to reconnect (acquires and releases its own write lock)
 	reconnectErr := c.reconnect()
 
-	// Reacquire original lock type
-	if isReadOp {
-		c.mu.RLock()
-	} else if isWriteOp {
+	// Reacquire original lock
+	if !isLockOp {
 		c.mu.Lock()
 	}
-	// Lock/Unlock operations don't hold c.mu, so nothing to reacquire
 
 	return reconnectErr
 }
@@ -1522,10 +1514,11 @@ func (c *Client) handleTransportErrorReconnect(ctx context.Context, req *Req) er
 // transport errors.
 //
 // Thread Safety:
-//   - Read operations (get, get-config): Caller MUST hold c.mu.RLock()
-//   - Write operations (edit-config, copy-config, delete-config): Caller MUST hold c.mu.Lock()
-//   - Rationale: Write operations modify device state and must be serialized.
-//     Read operations can execute concurrently.
+//   - All operations (get, get-config, validate, edit-config, copy-config,
+//     delete-config, commit, discard, rpc): Caller MUST hold c.mu.Lock()
+//   - Lock/Unlock: Caller holds no lock (see Lock()/Unlock() for rationale)
+//   - Rationale: All operations are serialized on the same client, including
+//     reads, to simplify reconnection handling.
 //
 // Lock Ordering:
 //
@@ -1784,7 +1777,7 @@ func (c *Client) sendRPC(ctx context.Context, req *Req) (Res, error) {
 // currently used because scrapligo driver methods do not accept context.
 // Timeout enforcement is handled by the caller (sendRPC).
 //
-// PRECONDITION: Caller must hold appropriate lock (RLock for reads, Lock for writes).
+// PRECONDITION: Caller must hold c.mu.Lock(), except for Lock/Unlock operations.
 // PRECONDITION: Context must have timeout applied by caller.
 //
 // Returns a parsed Res or an error if the RPC fails.
