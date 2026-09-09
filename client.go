@@ -231,6 +231,8 @@ func (c *Client) buildScrapligoOptions() []util.Option {
 	// Only disable host key verification if explicitly requested
 	if c.InsecureSkipVerify {
 		scrapliOpts = append(scrapliOpts, options.WithAuthNoStrictKey())
+	} else {
+		scrapliOpts = append(scrapliOpts, options.WithSSHKnownHostsFileSystem())
 	}
 
 	// Add SSH key authentication if provided
