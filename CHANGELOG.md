@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Scrapligo downgrade to v1.4.0**: Reverted the transitive `github.com/scrapli/scrapligo` dependency from v1.4.1 back to v1.4.0, which caused intermittent connection errors on the first operation of a new NETCONF session against some IOS-XE devices.
+
 ## [0.6.1] - 2026-09-09
 
 ### Fixed
