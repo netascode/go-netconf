@@ -18,6 +18,12 @@ updates:
     commit-message:
       prefix: "build"
       include: "scope"
+    ignore:
+      # v1.4.1 causes intermittent connection errors on the first operation
+      # of a new NETCONF session against some IOS-XE devices. Remove this
+      # ignore rule once a fixed scrapligo release is available. See CHANGELOG.md.
+      - dependency-name: "github.com/scrapli/scrapligo"
+        versions: [">= 1.4.1"]
 
   # GitHub Actions dependencies
   - package-ecosystem: "github-actions"
