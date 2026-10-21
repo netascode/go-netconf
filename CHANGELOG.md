@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-22
+
 ### Changed
 
 - **xmldot v0.6.0**: Updated `github.com/netascode/xmldot` from v0.5.1 to v0.6.0. Its security limits now fail instead of silently truncating, lists are no longer capped at 1000 elements, and the default document size limit is 100 MB instead of 10 MB.
@@ -76,7 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/netascode/go-netconf/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/netascode/go-netconf/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/netascode/go-netconf/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/netascode/go-netconf/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/netascode/go-netconf/compare/v0.5.2...v0.6.0
