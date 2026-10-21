@@ -107,7 +107,9 @@ func TestBuildScrapligoOptionsUsesStandardUserKnownHosts(t *testing.T) {
 		t.Fatalf("failed to close known_hosts file: %v", err)
 	}
 
+	// os.UserHomeDir reads HOME on Unix and USERPROFILE on Windows
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	client := &Client{}
 	sshArgs, err := transport.NewSSHArgs(client.buildScrapligoOptions()...)
 	if err != nil {
@@ -122,7 +124,9 @@ func TestBuildScrapligoOptionsUsesStandardUserKnownHosts(t *testing.T) {
 }
 
 func TestBuildScrapligoOptionsInsecureSkipsKnownHostsLookup(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	client := &Client{InsecureSkipVerify: true}
 	sshArgs, err := transport.NewSSHArgs(client.buildScrapligoOptions()...)
 	if err != nil {

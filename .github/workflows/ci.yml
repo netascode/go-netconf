@@ -43,7 +43,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     needs: [security_check]
     if: |
       always() &&
@@ -52,8 +52,14 @@ jobs:
     permissions:
       contents: read
     strategy:
+      fail-fast: false
       matrix:
+        # scrapligo does not test on Windows, so we do (terraform providers ship Windows builds)
+        os: [ubuntu-latest, macos-latest, windows-latest]
         go-version: ['1.26.x', '1.27.x']
+    defaults:
+      run:
+        shell: bash
 
     steps:
     - name: Checkout code
@@ -66,12 +72,18 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
 
+    - name: Get Go cache paths
+      id: go-cache-paths
+      run: |
+        echo "gocache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "gomodcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
     - name: Cache Go modules
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
+          ${{ steps.go-cache-paths.outputs.gocache }}
+          ${{ steps.go-cache-paths.outputs.gomodcache }}
         key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-${{ matrix.go-version }}-
@@ -91,7 +103,7 @@ jobs:
         go list ./... | grep -v /examples | xargs go test -v -race -coverprofile=coverage.out -covermode=atomic
 
     - name: Upload coverage to Codecov
-      if: matrix.go-version == '1.26.x'
+      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.26.x'
       uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v4.6.0
       with:
         files: ./coverage.out
