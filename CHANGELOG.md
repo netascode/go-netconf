@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **xmldot v0.6.0**: Updated `github.com/netascode/xmldot` from v0.5.1 to v0.6.0. Its security limits now fail instead of silently truncating, lists are no longer capped at 1000 elements, and the default document size limit is 100 MB instead of 10 MB.
+- **Scrapligo v1.4.3**: Updated `github.com/scrapli/scrapligo` from v1.4.0 to v1.4.3. It no longer sends an extra LF after the client hello on NETCONF 1.1 sessions, which caused the intermittent connection errors on the first operation of a new session that led to the downgrade in v0.6.2. Dependabot no longer ignores scrapligo updates.
 
 ### Fixed
 
