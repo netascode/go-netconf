@@ -4,6 +4,7 @@
 package netconf
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netascode/xmldot"
 	"github.com/scrapli/scrapligo/response"
 	"github.com/scrapli/scrapligo/transport"
 	"github.com/scrapli/scrapligo/util"
@@ -849,7 +851,10 @@ func TestBuildEditConfigXML(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			xml := client.buildEditConfigXML(tt.req)
+			xml, err := client.buildEditConfigXML(tt.req)
+			if err != nil {
+				t.Fatalf("buildEditConfigXML returned error: %v", err)
+			}
 
 			// Verify all expected fragments are present
 			for _, expected := range tt.expected {
@@ -881,7 +886,10 @@ func TestBuildEditConfigXMLOrder(t *testing.T) {
 		ErrorOption:      "rollback-on-error",
 	}
 
-	xml := client.buildEditConfigXML(req)
+	xml, err := client.buildEditConfigXML(req)
+	if err != nil {
+		t.Fatalf("buildEditConfigXML returned error: %v", err)
+	}
 
 	// RFC 6241 Section 7.2 specifies the order:
 	// 1. target
@@ -927,7 +935,10 @@ func TestBuildEditConfigXMLEmptyValues(t *testing.T) {
 		ErrorOption:      "",
 	}
 
-	xml := client.buildEditConfigXML(req)
+	xml, err := client.buildEditConfigXML(req)
+	if err != nil {
+		t.Fatalf("buildEditConfigXML returned error: %v", err)
+	}
 
 	// Empty optional fields should not be included
 	if strings.Contains(xml, "<default-operation>") {
@@ -987,7 +998,10 @@ func TestEditConfigOptionValidValues(t *testing.T) {
 				req.ErrorOption = tt.value
 			}
 
-			xml := client.buildEditConfigXML(req)
+			xml, err := client.buildEditConfigXML(req)
+			if err != nil {
+				t.Fatalf("buildEditConfigXML returned error: %v", err)
+			}
 
 			if tt.valid {
 				if !strings.Contains(xml, tt.value) {
@@ -1773,6 +1787,54 @@ func TestResponsePreprocessor(t *testing.T) {
 		}
 		if res.Errors[0].ErrorMessage != "Something went wrong" {
 			t.Errorf("expected error message 'Something went wrong', got %q", res.Errors[0].ErrorMessage)
+		}
+	})
+}
+
+// TestLimitErrorsAreReported verifies that xmldot security limit violations are
+// returned as errors instead of empty replies or edit-config RPCs without config.
+func TestLimitErrorsAreReported(t *testing.T) {
+	client := &Client{logger: &NoOpLogger{}}
+
+	reply := `<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1"><data><native><hostname>r1</hostname></native></data></rpc-reply>`
+	config := `<config><native><hostname>r1</hostname></native></config>`
+	req := &Req{Operation: opEditConfig, Target: "running", Config: config}
+
+	// Within the limits, both succeed
+	if res, err := client.parseResponse(&response.NetconfResponse{Result: reply}); err != nil || res.Res.Get("data.native.hostname").String() != "r1" {
+		t.Fatalf("parseResponse: res=%v err=%v", res.Res, err)
+	}
+	if _, err := client.buildEditConfigXML(req); err != nil {
+		t.Fatalf("buildEditConfigXML: %v", err)
+	}
+
+	t.Run("reply exceeding a limit", func(t *testing.T) {
+		old := xmldot.MaxDocumentSize
+		xmldot.MaxDocumentSize = 50
+		defer func() { xmldot.MaxDocumentSize = old }()
+
+		res, err := client.parseResponse(&response.NetconfResponse{Result: reply})
+		if !errors.Is(err, xmldot.ErrLimitExceeded) {
+			t.Fatalf("expected xmldot.ErrLimitExceeded, got %v", err)
+		}
+		if res.Res.Exists() {
+			t.Errorf("expected empty Res on error, got %v", res.Res)
+		}
+	})
+
+	t.Run("edit-config exceeding a limit", func(t *testing.T) {
+		// <edit-config><target><running/> fits, but inserting the configuration
+		// below <edit-config><config> exceeds the depth limit
+		old := xmldot.MaxNestingDepth
+		xmldot.MaxNestingDepth = 3
+		defer func() { xmldot.MaxNestingDepth = old }()
+
+		xml, err := client.buildEditConfigXML(req)
+		if !errors.Is(err, xmldot.ErrLimitExceeded) {
+			t.Fatalf("expected xmldot.ErrLimitExceeded, got %v (xml %q)", err, xml)
+		}
+		if xml != "" {
+			t.Errorf("expected no RPC XML on error, got %q", xml)
 		}
 	})
 }

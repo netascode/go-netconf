@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **xmldot v0.6.0**: Updated `github.com/netascode/xmldot` from v0.5.1 to v0.6.0. Its security limits now fail instead of silently truncating, lists are no longer capped at 1000 elements, and the default document size limit is 100 MB instead of 10 MB.
+
+### Fixed
+
+- **Replies exceeding xmldot limits are reported as errors**: A reply that exceeded one of xmldot's security limits was parsed into an empty `Res` without an error, so callers could mistake it for a reply without data. Operations now return an error wrapping `xmldot.ErrLimitExceeded`.
+- **edit-config is never sent without its configuration**: Errors while building the edit-config RPC were ignored, so a configuration that could not be inserted (for example because it exceeded an xmldot limit) produced an edit-config without `<config>` content. The operation now fails with the error before anything is sent.
+- **Lint with golangci-lint v2.15**: The error returned when closing the driver during a reconnect is now logged at debug level instead of being discarded unchecked. The CI lint job is pinned to golangci-lint v2.15 instead of `latest`, and `make tools` installs v2.15.0 instead of v1.62.2.
+
 ## [0.6.2] - 2026-09-17
 
 ### Fixed

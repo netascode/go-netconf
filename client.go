@@ -164,9 +164,9 @@ type Client struct {
 	serverVersion string
 
 	// Logging configuration
-	logger            Logger
-	prettyPrintLogs   bool
-	redactionPatterns []*regexp.Regexp
+	logger               Logger
+	prettyPrintLogs      bool
+	redactionPatterns    []*regexp.Regexp
 	responsePreprocessor func(string) string
 }
 
@@ -1457,8 +1457,13 @@ func (c *Client) reconnect() error {
 		}()
 
 		select {
-		case <-closeDone:
-			// Close completed, ignore any errors (connection likely broken)
+		case closeErr := <-closeDone:
+			// Close completed; errors are expected because the connection is likely broken
+			if closeErr != nil {
+				c.logger.Debug(context.Background(), "NETCONF driver close error during reconnect ignored",
+					"host", c.Host,
+					"error", closeErr)
+			}
 		case <-ctx.Done():
 			c.logger.Warn(context.Background(), "NETCONF driver close timeout during reconnect",
 				"host", c.Host,
@@ -1941,7 +1946,10 @@ func (c *Client) executeGetConfig(req *Req) (*response.NetconfResponse, error) {
 // executeEditConfig executes an edit-config operation.
 func (c *Client) executeEditConfig(req *Req) (*response.NetconfResponse, error) {
 	// Build edit-config XML and send via RPC
-	rpcXML := c.buildEditConfigXML(req)
+	rpcXML, err := c.buildEditConfigXML(req)
+	if err != nil {
+		return nil, err
+	}
 	return c.driver.RPC(opoptions.WithFilter(rpcXML))
 }
 
@@ -1968,7 +1976,8 @@ func (c *Client) executeCommit(req *Req) (*response.NetconfResponse, error) {
 //
 // PRECONDITION: scrapligoRes must not be nil (checked by caller).
 //
-// Returns a Res struct with parsed data or an error if parsing fails.
+// Returns a Res struct with parsed data or an error if parsing fails, for example
+// because the reply exceeds one of xmldot's security limits (xmldot.ErrLimitExceeded).
 func (c *Client) parseResponse(scrapligoRes *response.NetconfResponse) (Res, error) {
 
 	// Apply response preprocessor if configured (e.g., to escape malformed XML)
@@ -1977,8 +1986,12 @@ func (c *Client) parseResponse(scrapligoRes *response.NetconfResponse) (Res, err
 		rawXML = c.responsePreprocessor(rawXML)
 	}
 
-	// Parse XML with xmldot
+	// Parse XML with xmldot. A reply that exceeds a security limit must not be
+	// mistaken for an empty reply.
 	result := xmldot.Get(rawXML, "rpc-reply")
+	if result.Err != nil {
+		return Res{}, fmt.Errorf("failed to parse NETCONF reply: %w", result.Err)
+	}
 
 	// Check for <ok/> response
 	okResult := xmldot.Get(rawXML, "rpc-reply.ok")
@@ -2087,27 +2100,38 @@ func (c *Client) parseRPCErrors(responseXML string) []ErrorModel {
 //
 // Uses xmldot for safe XML building with automatic escaping.
 //
-// Returns the complete RPC XML string.
-func (c *Client) buildEditConfigXML(req *Req) string {
+// Returns the complete RPC XML string, or an error if it cannot be built, for
+// example because the configuration exceeds one of xmldot's security limits
+// (xmldot.ErrLimitExceeded). An edit-config is never sent without its configuration.
+func (c *Client) buildEditConfigXML(req *Req) (string, error) {
 	// Start with edit-config root element
 	xml := "<edit-config></edit-config>"
+	var err error
 
 	// Target datastore (as empty element: <candidate/>, <running/>, etc.)
-	xml, _ = xmldot.SetRaw(xml, "edit-config.target", "<"+req.Target+"/>") //nolint:errcheck // XML building errors caught during validation
+	if xml, err = xmldot.SetRaw(xml, "edit-config.target", "<"+req.Target+"/>"); err != nil {
+		return "", fmt.Errorf("failed to build edit-config target: %w", err)
+	}
 
 	// Default operation (optional) - xmldot automatically escapes the value
 	if req.DefaultOperation != "" {
-		xml, _ = xmldot.Set(xml, "edit-config.default-operation", req.DefaultOperation) //nolint:errcheck // XML building errors caught during validation
+		if xml, err = xmldot.Set(xml, "edit-config.default-operation", req.DefaultOperation); err != nil {
+			return "", fmt.Errorf("failed to build edit-config default-operation: %w", err)
+		}
 	}
 
 	// Test option (optional) - xmldot automatically escapes the value
 	if req.TestOption != "" {
-		xml, _ = xmldot.Set(xml, "edit-config.test-option", req.TestOption) //nolint:errcheck // XML building errors caught during validation
+		if xml, err = xmldot.Set(xml, "edit-config.test-option", req.TestOption); err != nil {
+			return "", fmt.Errorf("failed to build edit-config test-option: %w", err)
+		}
 	}
 
 	// Error option (optional) - xmldot automatically escapes the value
 	if req.ErrorOption != "" {
-		xml, _ = xmldot.Set(xml, "edit-config.error-option", req.ErrorOption) //nolint:errcheck // XML building errors caught during validation
+		if xml, err = xmldot.Set(xml, "edit-config.error-option", req.ErrorOption); err != nil {
+			return "", fmt.Errorf("failed to build edit-config error-option: %w", err)
+		}
 	}
 
 	// Extract config content - strip outer <config> wrapper if present
@@ -2117,6 +2141,9 @@ func (c *Client) buildEditConfigXML(req *Req) string {
 
 	// Check if user provided <config>...</config> wrapper and extract inner content
 	result := xmldot.Get(req.Config, "config")
+	if result.Err != nil {
+		return "", fmt.Errorf("failed to parse edit-config configuration: %w", result.Err)
+	}
 	if result.Exists() {
 		// User provided <config> wrapper (e.g., from Body builder), extract inner XML content
 		// Use |@raw modifier to get the raw inner XML without the <config> wrapper
@@ -2127,7 +2154,9 @@ func (c *Client) buildEditConfigXML(req *Req) string {
 	}
 
 	// Config data (raw XML content without outer <config> wrapper)
-	xml, _ = xmldot.SetRaw(xml, "edit-config.config", configContent) //nolint:errcheck // XML building errors caught during validation
+	if xml, err = xmldot.SetRaw(xml, "edit-config.config", configContent); err != nil {
+		return "", fmt.Errorf("failed to build edit-config configuration: %w", err)
+	}
 
-	return xml
+	return xml, nil
 }
